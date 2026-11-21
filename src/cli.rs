@@ -131,11 +131,13 @@ pub fn default_config_path() -> PathBuf {
     }
 }
 
+/// The standard log folder for the standard config; otherwise next to the config file. Derived
+/// from the config path only, so the CLI and the launchd/Run-key agent always agree.
 fn default_log_path(config_path: &Path) -> PathBuf {
-    match std::env::var_os("OIF_HOME") {
-        Some(home) => PathBuf::from(home).join("logs").join(format!("{APP_NAME}.log")),
-        None if config_path != default_config_path() => config_path.with_file_name(format!("{APP_NAME}.log")),
-        None => paths::log_dir().join(format!("{APP_NAME}.log")),
+    if config_path == paths::config_dir().join("config.toml") {
+        paths::log_dir().join(format!("{APP_NAME}.log"))
+    } else {
+        config_path.with_file_name(format!("{APP_NAME}.log"))
     }
 }
 
@@ -408,21 +410,42 @@ fn uninstall(config_path: &Path, purge: bool) -> Result<()> {
     autostart::uninstall()?;
     println!("自動起動を解除しました");
     if purge {
-        let dir = config_path.parent().map(Path::to_path_buf).unwrap_or_else(paths::config_dir);
-        for name in ["config.toml", "state.toml", "agent.lock", "config.tmp", "state.tmp"] {
-            let _ = fs::remove_file(dir.join(name));
-        }
-        let _ = fs::remove_dir(&dir);
-        let log = default_log_path(config_path);
-        if let Some(log_dir) = log.parent() {
-            let _ = fs::remove_dir_all(log_dir);
-        }
+        purge_files(config_path);
         println!("設定とログを削除しました");
     }
     if let Ok(exe) = std::env::current_exe() {
         println!("実行ファイルは手動で削除してください: {}", exe.parent().unwrap_or(&exe).display());
     }
     Ok(())
+}
+
+/// Removes only files this tool created. Folders are removed only when left empty, so a
+/// config placed in a shared folder (e.g. `--config ~/Documents/x.toml`) cannot take it along.
+fn purge_files(config_path: &Path) -> Vec<PathBuf> {
+    let state = state_path_for(config_path);
+    let log = default_log_path(config_path);
+    let mut files = vec![
+        config_path.to_path_buf(),
+        config_path.with_extension("tmp"),
+        state.clone(),
+        state.with_extension("tmp"),
+        lock_path(config_path),
+        log.clone(),
+        log.with_extension("log.1"),
+    ];
+    if let Some(log_dir) = log.parent() {
+        files.push(log_dir.join("launchd.log"));
+    }
+    let mut removed = Vec::new();
+    for f in files {
+        if fs::remove_file(&f).is_ok() {
+            removed.push(f);
+        }
+    }
+    for dir in [config_path.parent(), log.parent()].into_iter().flatten() {
+        let _ = fs::remove_dir(dir); // fails unless empty
+    }
+    removed
 }
 
 fn status(config_path: &Path) -> Result<()> {
@@ -556,4 +579,39 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
         bail!("{failed} 件の変換に失敗しました");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn purge_removes_only_our_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("Documents");
+        fs::create_dir_all(shared.join("sub")).unwrap();
+        let config = shared.join("my-config.toml");
+        for f in
+            ["my-config.toml", "state.toml", "agent.lock", "optimize-image-folder.log", "notes.txt", "sub/photo.jpg"]
+        {
+            fs::write(shared.join(f), b"x").unwrap();
+        }
+        let removed = purge_files(&config);
+        assert_eq!(removed.len(), 4, "{removed:?}");
+        assert!(shared.join("notes.txt").exists());
+        assert!(shared.join("sub/photo.jpg").exists());
+        assert!(!config.exists());
+    }
+
+    #[test]
+    fn purge_removes_empty_dedicated_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let own = dir.path().join("optimize-image-folder");
+        fs::create_dir_all(&own).unwrap();
+        let config = own.join("config.toml");
+        fs::write(&config, b"x").unwrap();
+        fs::write(own.join("state.toml"), b"x").unwrap();
+        purge_files(&config);
+        assert!(!own.exists());
+    }
 }

@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: build (macOS universal)
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default stable
+
+      - name: Install NASM (x86_64 SIMD)
+        run: brew install nasm
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin --bin optimize-image-folder
+          cargo build --release --locked --target x86_64-apple-darwin --bin optimize-image-folder
+
+      - name: Universal binary
+        run: |
+          mkdir -p dist/pkg
+          lipo -create -output dist/pkg/optimize-image-folder \
+            target/aarch64-apple-darwin/release/optimize-image-folder \
+            target/x86_64-apple-darwin/release/optimize-image-folder
+          lipo -info dist/pkg/optimize-image-folder
+
+      - name: Sign (Developer ID if configured, ad-hoc otherwise)
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          BIN=dist/pkg/optimize-image-folder
+          if [ -n "$APPLE_CERT_P12" ]; then
+            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+            KEYCHAIN_PASSWORD="$(uuidgen)"
+            echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+            security list-keychain -d user -s "$KEYCHAIN"
+            codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$BIN"
+            if [ -n "$APPLE_ID" ]; then
+              ditto -c -k --keepParent "$BIN" "$RUNNER_TEMP/notarize.zip"
+              xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+                --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+            fi
+          else
+            codesign --force --sign - "$BIN"
+          fi
+          codesign --verify --verbose "$BIN"
+
+      - name: Package
+        run: |
+          cp README.md LICENSE dist/pkg/
+          tar -C dist/pkg -czf dist/optimize-image-folder-macos-universal.tar.gz .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/*.tar.gz
+
+  windows:
+    name: build (Windows ${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch: x64
+            features: ""
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+            # rav1e's NEON assembly is GNU syntax, which MSVC cannot assemble.
+            features: "--no-default-features"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl -sSfL -o rustup-init.exe https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe
+            ./rustup-init.exe -y --default-toolchain none --profile minimal
+            export PATH="$HOME/.cargo/bin:$PATH"
+            cygpath -w "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+
+      - name: Install NASM (x86_64 SIMD)
+        if: matrix.arch == 'x64'
+        uses: ilammy/setup-nasm@v1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} ${{ matrix.features }}
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "target/${{ matrix.target }}/release"
+          New-Item -ItemType Directory -Force dist/pkg | Out-Null
+          Copy-Item "$out/optimize-image-folder.exe", "$out/optimize-image-folder-agent.exe", README.md, LICENSE dist/pkg/
+          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/optimize-image-folder-windows-${{ matrix.arch }}.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*.zip
+
+  publish:
+    name: publish release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+          fi

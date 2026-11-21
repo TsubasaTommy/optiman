@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-15
+            features: ""
+          - name: Windows x64
+            runner: windows-latest
+            features: ""
+          - name: Windows arm64
+            runner: windows-11-arm
+            # rav1e's NEON assembly is GNU syntax, which MSVC cannot assemble.
+            features: "--no-default-features"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl -sSfL -o rustup-init.exe https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe
+            ./rustup-init.exe -y --default-toolchain none --profile minimal
+            export PATH="$HOME/.cargo/bin:$PATH"
+            cygpath -w "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+
+      - name: Install NASM
+        if: matrix.runner == 'windows-latest'
+        uses: ilammy/setup-nasm@v1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        if: matrix.runner == 'macos-15'
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked ${{ matrix.features }} -- -D warnings
+
+      - name: Test
+        run: cargo test --locked ${{ matrix.features }}
+
+      - name: Release build
+        run: cargo build --release --locked ${{ matrix.features }}
+
+      - name: Idle CPU check (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/idle-check.sh target/release/optimize-image-folder 30
+
+      - name: Idle CPU check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/idle-check.ps1 -Exe target/release/optimize-image-folder.exe -Seconds 30

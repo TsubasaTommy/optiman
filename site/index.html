@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>optimize-image-folder</title>
+<meta name="description" content="写真フォルダを監視して、追加された写真を AV1 (AVIF) に自動変換する macOS / Windows 用の常駐ツール。待機中の CPU 使用率は 0%。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M7 22l6-7 4 5 3-3 5 5z' fill='white'/%3E%3Ccircle cx='21' cy='11' r='3' fill='white'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --text: #1c1c1e;
+    --muted: #5f6368;
+    --border: #e3e3df;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --code-bg: #f0f0ec;
+    --warn-bg: #fff4e5;
+    --warn-border: #f5b04c;
+    --warn-text: #6b3d00;
+    --ok: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121214;
+      --surface: #1c1c20;
+      --text: #ececee;
+      --muted: #a1a1aa;
+      --border: #2e2e34;
+      --accent: #5b8cff;
+      --accent-text: #0b0b0d;
+      --code-bg: #26262c;
+      --warn-bg: #2b2112;
+      --warn-border: #a86b12;
+      --warn-text: #f7d39b;
+      --ok: #4ade80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121214;
+    --surface: #1c1c20;
+    --text: #ececee;
+    --muted: #a1a1aa;
+    --border: #2e2e34;
+    --accent: #5b8cff;
+    --accent-text: #0b0b0d;
+    --code-bg: #26262c;
+    --warn-bg: #2b2112;
+    --warn-border: #a86b12;
+    --warn-text: #f7d39b;
+    --ok: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Segoe UI", sans-serif;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 64px; }
+  header h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
+  header p.lead { font-size: 1.1rem; color: var(--muted); margin: 0 0 16px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .badge { font-size: .8rem; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
+  .badge strong { color: var(--text); font-weight: 600; }
+  h2 { font-size: 1.3rem; margin: 48px 0 12px; }
+  h3 { font-size: 1.05rem; margin: 24px 0 8px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0 8px; }
+  .dl {
+    display: flex; flex-direction: column; gap: 2px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; text-decoration: none; color: var(--text);
+    transition: border-color .15s, transform .15s;
+  }
+  .dl:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .dl .os { font-weight: 700; font-size: 1.05rem; }
+  .dl .arch { color: var(--muted); font-size: .9rem; }
+  .dl .file { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: var(--accent-text); border-radius: 8px; padding: 6px 12px; font-weight: 600; font-size: .9rem; align-self: flex-start; }
+  .dl.recommended { border-color: var(--accent); }
+  .small { font-size: .9rem; color: var(--muted); }
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); border-radius: 12px; padding: 14px 16px; margin: 20px 0; }
+  .warn strong { font-weight: 700; }
+  .cmd { position: relative; margin: 8px 0 16px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin: 0; overflow-x: auto; font-size: .88rem; line-height: 1.6;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  p code, li code, td code { background: var(--code-bg); border-radius: 5px; padding: 1px 5px; font-size: .88em; }
+  .copy {
+    position: absolute; top: 8px; right: 8px; font: inherit; font-size: .78rem;
+    background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+    padding: 2px 8px; cursor: pointer;
+  }
+  .copy:hover { color: var(--text); }
+  .tabs { display: flex; gap: 6px; margin-top: 8px; }
+  .tab { font: inherit; font-size: .9rem; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--surface); color: var(--text); border-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .feature { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .feature h3 { margin: 0 0 4px; font-size: 1rem; }
+  .feature p { margin: 0; color: var(--muted); font-size: .92rem; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; background: var(--surface); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  ol, ul { padding-left: 1.4em; margin: 0 0 12px; }
+  li { margin: 2px 0; }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="badges">
+      <span class="badge">最新版 <strong id="version">—</strong></span>
+      <span class="badge">macOS 11+ / Windows 10+</span>
+      <span class="badge">MIT License</span>
+    </div>
+    <h1>optimize-image-folder</h1>
+    <p class="lead">写真フォルダを見張って、新しく入った写真を AV1 (AVIF) に自動で変換する常駐ツール。何もしていない間は CPU を一切使いません。</p>
+  </header>
+
+  <section id="download">
+    <h2>ダウンロード</h2>
+    <div class="downloads">
+      <a class="dl" data-os="mac" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-macos-universal.tar.gz">
+        <span class="os">macOS</span>
+        <span class="arch">Apple Silicon / Intel (Universal)</span>
+        <span class="file">⬇ .tar.gz</span>
+      </a>
+      <a class="dl" data-os="win-x64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-x64.zip">
+        <span class="os">Windows</span>
+        <span class="arch">x64 (Intel / AMD)</span>
+        <span class="file">⬇ .zip</span>
+      </a>
+      <a class="dl" data-os="win-arm64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-arm64.zip">
+        <span class="os">Windows</span>
+        <span class="arch">ARM64 (Snapdragon など)</span>
+        <span class="file">⬇ .zip</span>
+      </a>
+    </div>
+    <p class="small">
+      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest">リリースノート</a> ·
+      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> ·
+      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases">すべてのバージョン</a> ·
+      <a href="https://github.com/TsubasaTommy/optimize-image-folder">ソースコード</a>
+    </p>
+
+    <div class="warn">
+      <strong>元の写真は既定で完全に削除されます。</strong>
+      変換した AVIF を検証し (OS に AVIF デコーダがあれば実際に読み戻して)、元ファイルが変換中に変わっていないことを確かめてから削除します。それでも心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。RAW 形式は変換しません。
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>インストール</h2>
+    <p>ターミナルに 1 行貼り付けるだけでインストールできます。監視するフォルダ、元ファイルの扱い、既存の写真も変換するかを聞かれます。</p>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-panel="p-mac">macOS</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="p-win">Windows</button>
+    </div>
+    <div class="panel" id="p-mac">
+      <h3>ワンライナー (ターミナル)</h3>
+      <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh</code></pre></div>
+      <h3>手動でインストールする場合</h3>
+      <ol>
+        <li>上の macOS 版をダウンロードして展開します。</li>
+        <li>ブラウザで落としたファイルは Gatekeeper に止められるので、隔離属性を外します。
+          <div class="cmd"><pre><code>xattr -d com.apple.quarantine ./optimize-image-folder</code></pre></div></li>
+        <li>好きな場所 (例: <code>~/.local/bin</code>) に置いて、セットアップを実行します。
+          <div class="cmd"><pre><code>./optimize-image-folder install</code></pre></div></li>
+      </ol>
+      <p class="small">自動起動は <code>~/Library/LaunchAgents</code> の LaunchAgent として登録されます。</p>
+    </div>
+    <div class="panel" id="p-win" hidden>
+      <h3>ワンライナー (PowerShell)</h3>
+      <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex</code></pre></div>
+      <h3>手動でインストールする場合</h3>
+      <ol>
+        <li>お使いの CPU に合った Windows 版をダウンロードして展開します。</li>
+        <li>展開したフォルダで PowerShell を開き、セットアップを実行します。
+          <div class="cmd"><pre><code>.\optimize-image-folder.exe install</code></pre></div></li>
+      </ol>
+      <p class="small">自動起動は <code>HKCU\…\Run</code> に登録され、ウィンドウを出さない <code>optimize-image-folder-agent.exe</code> が常駐します。HEIC を変換するには Microsoft Store の「HEIF 画像拡張機能」と「HEVC ビデオ拡張機能」が必要です。</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2>特徴</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>待機中は CPU 0%</h3>
+        <p>タイマーもポーリングも使いません。OS からファイル変更の通知が届くまで、カーネルの待機状態で眠っています。常駐プロセスのメモリは約 2 MB です。</p>
+      </div>
+      <div class="feature">
+        <h3>OS のネイティブ API</h3>
+        <p>Rust から FSEvents・ImageIO (macOS)、ReadDirectoryChangesW・IOCP・WIC (Windows) を直接呼び出します。</p>
+      </div>
+      <div class="feature">
+        <h3>変換は使い捨てプロセスで</h3>
+        <p>変換が必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。メモリはすべて OS に返されます。</p>
+      </div>
+      <div class="feature">
+        <h3>写真らしさを保つ</h3>
+        <p>EXIF (撮影日時・GPS など)、回転、Display P3 の色域、透過、ファイルの日時を引き継ぎます。</p>
+      </div>
+      <div class="feature">
+        <h3>安全な置き換え</h3>
+        <p>AVIF を検証 → 一時ファイルに書いて fsync → rename → 元ファイルが変わっていないか確認、の順に進めてから元ファイルを処理します。</p>
+      </div>
+      <div class="feature">
+        <h3>対応形式</h3>
+        <p>JPEG / PNG / HEIC / HEIF / TIFF / BMP / WebP。RAW やアニメーション画像、写真ライブラリ (.photoslibrary) の中身は対象外です。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="usage">
+    <h2>使い方</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>コマンド</th><th>内容</th></tr>
+        <tr><td><code>install</code></td><td>設定を作り、自動起動に登録して常駐を始めます (<code>--folder</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--yes</code>)</td></tr>
+        <tr><td><code>status</code></td><td>常駐の状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
+        <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
+        <tr><td><code>start</code> / <code>stop</code> / <code>restart</code></td><td>常駐の開始・停止・再起動 (設定の変更を反映)</td></tr>
+        <tr><td><code>config</code></td><td>設定ファイルの場所と内容を表示します</td></tr>
+        <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
+      </table>
+    </div>
+    <h3>設定ファイル</h3>
+    <p class="small">macOS: <code>~/Library/Application Support/optimize-image-folder/config.toml</code> / Windows: <code>%APPDATA%\optimize-image-folder\config.toml</code></p>
+    <div class="cmd"><pre><code>folders = ["~/Pictures"]
+original = "delete"      # delete | trash | keep
+scan_existing = false    # 既存の写真も変換するか
+quality = 85             # 1-100
+speed = 6                # 1 (高画質・遅い) - 10 (速い)
+encoder = "auto"         # auto (=rav1e, 高圧縮) | native (OS, 高速) | rav1e
+jobs = 0                 # 同時変換数 (0 = 自動)
+settle_seconds = 2       # 書き込みが止まってから変換するまでの秒数
+skip_if_larger = true    # AVIF の方が大きければ元ファイルを残す</code></pre></div>
+  </section>
+
+  <section id="uninstall">
+    <h2>アンインストール</h2>
+    <div class="cmd"><pre><code>optimize-image-folder uninstall --purge</code></pre></div>
+    <p class="small">そのあと実行ファイルを削除してください (macOS: <code>~/.local/bin/optimize-image-folder</code>、Windows: <code>%LOCALAPPDATA%\Programs\optimize-image-folder</code>)。</p>
+  </section>
+
+  <footer>
+    <span>optimize-image-folder · MIT License</span>
+    <a href="https://github.com/TsubasaTommy/optimize-image-folder">GitHub</a>
+  </footer>
+</main>
+<script>
+  // Copy buttons
+  document.querySelectorAll(".cmd").forEach(function (box) {
+    var btn = document.createElement("button");
+    btn.className = "copy";
+    btn.type = "button";
+    btn.textContent = "コピー";
+    btn.addEventListener("click", function () {
+      var text = box.querySelector("code").innerText;
+      var done = function () { btn.textContent = "コピーしました"; setTimeout(function () { btn.textContent = "コピー"; }, 1500); };
+      if (navigator.clipboard) { navigator.clipboard.writeText(text).then(done, function () {}); }
+    });
+    box.appendChild(btn);
+  });
+
+  // Tabs
+  var tabs = document.querySelectorAll(".tab");
+  function select(id) {
+    tabs.forEach(function (t) {
+      var on = t.dataset.panel === id;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      document.getElementById(t.dataset.panel).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t) { t.addEventListener("click", function () { select(t.dataset.panel); }); });
+
+  // Highlight the download for this visitor's OS
+  var ua = navigator.userAgent;
+  if (/Windows/.test(ua)) {
+    select("p-win");
+    var arm = /ARM64|aarch64/i.test(ua);
+    var el = document.querySelector('.dl[data-os="' + (arm ? "win-arm64" : "win-x64") + '"]');
+    if (el) el.classList.add("recommended");
+  } else if (/Mac OS X|Macintosh/.test(ua)) {
+    var mac = document.querySelector('.dl[data-os="mac"]');
+    if (mac) mac.classList.add("recommended");
+  }
+
+  // Latest version (optional; links work without it)
+  fetch("https://api.github.com/repos/TsubasaTommy/optimize-image-folder/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j && j.tag_name) document.getElementById("version").textContent = j.tag_name; })
+    .catch(function () {});
+</script>
+</body>
+</html>

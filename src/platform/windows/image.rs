@@ -1,6 +1,8 @@
 //! Windows Imaging Component: decode with orientation and colour management, and AVIF
 //! verification when an AVIF codec (AV1 Video Extension) is installed.
 
+use std::sync::OnceLock;
+
 use windows::Win32::Foundation::WINCODEC_ERR_COMPONENTNOTFOUND;
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_WICPixelFormat32bppRGBA, IWICBitmapDecoder, IWICBitmapFrameDecode, IWICBitmapSource,
@@ -63,15 +65,17 @@ fn orientation_from_wic(frame: &IWICBitmapFrameDecode) -> Option<u16> {
     }
 }
 
+/// EXIF orientation → WIC transform. WIC applies the flip before the (clockwise) rotation,
+/// so transpose (5) is flip + 270° and transverse (7) is flip + 90°.
 fn transform_for(orientation: u16) -> WICBitmapTransformOptions {
     let combine = |a: WICBitmapTransformOptions, b: WICBitmapTransformOptions| WICBitmapTransformOptions(a.0 | b.0);
     match orientation {
         2 => WICBitmapTransformFlipHorizontal,
         3 => WICBitmapTransformRotate180,
         4 => WICBitmapTransformFlipVertical,
-        5 => combine(WICBitmapTransformRotate90, WICBitmapTransformFlipHorizontal),
+        5 => combine(WICBitmapTransformRotate270, WICBitmapTransformFlipHorizontal),
         6 => WICBitmapTransformRotate90,
-        7 => combine(WICBitmapTransformRotate270, WICBitmapTransformFlipHorizontal),
+        7 => combine(WICBitmapTransformRotate90, WICBitmapTransformFlipHorizontal),
         8 => WICBitmapTransformRotate270,
         _ => WICBitmapTransformOptions(0),
     }
@@ -173,14 +177,28 @@ pub fn decode(data: &[u8]) -> Result<DecodedImage, EncodeError> {
     }
 }
 
-/// Fully decodes the AVIF with WIC. `None` when no AVIF codec is installed.
+/// Whether WIC can really decode AVIF here. The HEIF component may be registered while the AV1
+/// codec it needs is missing (it then fails at initialisation), so probe with a tiny AVIF of
+/// our own instead of interpreting individual error codes.
+pub fn native_decoder_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        let rgba = [128u8, 128, 128, 255].repeat(16 * 16);
+        let img = DecodedImage { width: 16, height: 16, rgba, primaries: Primaries::Srgb };
+        crate::encode::av1::encode(&img, None, 50, 10)
+            .ok()
+            .is_some_and(|probe| decode_avif(&probe.avif).is_ok_and(|dims| dims == (16, 16)))
+    })
+}
+
+/// Fully decodes the AVIF with WIC. `None` when this system has no working AVIF codec.
 pub fn verify_decode(avif: &[u8]) -> Option<Result<(u32, u32), String>> {
-    let opened = match open(avif) {
-        Ok(o) => o,
-        Err(e) if e.code() == WINCODEC_ERR_COMPONENTNOTFOUND => return None,
-        Err(e) => return Some(Err(e.message())),
-    };
-    Some(unsafe {
+    native_decoder_available().then(|| decode_avif(avif))
+}
+
+fn decode_avif(avif: &[u8]) -> Result<(u32, u32), String> {
+    let opened = open(avif).map_err(|e| e.message())?;
+    unsafe {
         (|| -> windows::core::Result<(u32, u32)> {
             let frame = opened.decoder.GetFrame(0)?;
             let conv = opened.factory.CreateFormatConverter()?;
@@ -199,5 +217,5 @@ pub fn verify_decode(avif: &[u8]) -> Option<Result<(u32, u32), String>> {
             Ok((w, h))
         })()
         .map_err(|e| e.message())
-    })
+    }
 }

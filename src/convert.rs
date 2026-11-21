@@ -207,15 +207,15 @@ pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
     };
     drop(data);
 
-    if let Err(m) = encode::verify(&encoded.avif, encoded.width, encoded.height) {
-        return Outcome::Failed { reason: format!("出力の検証に失敗: {m}"), remember: Some(fp) };
-    }
     let after = encoded.avif.len() as u64;
     if ctx.skip_if_larger && after >= size {
         return Outcome::skipped(
             format!("AVIF の方が大きいため元ファイルを維持 ({} → {})", human(size), human(after)),
             fp,
         );
+    }
+    if let Err(m) = encode::verify(&encoded.avif, encoded.width, encoded.height) {
+        return Outcome::Failed { reason: format!("出力の検証に失敗: {m}"), remember: Some(fp) };
     }
 
     let Some(dir) = target.parent() else { return Outcome::failed("出力先フォルダが不明") };

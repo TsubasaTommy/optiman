@@ -157,14 +157,14 @@ pub fn decode(data: &[u8]) -> Result<DecodedImage, EncodeError> {
         if has_alpha {
             unpremultiply(&mut rgba);
         } else {
-            rgba.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+            rgba.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p[3] = 255);
         }
         Ok(DecodedImage { width: w as u32, height: h as u32, rgba, primaries })
     }
 }
 
 fn unpremultiply(rgba: &mut [u8]) {
-    for p in rgba.chunks_exact_mut(4) {
+    for p in rgba.as_chunks_mut::<4>().0 {
         let a = u32::from(p[3]);
         match a {
             255 => {}

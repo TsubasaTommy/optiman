@@ -209,7 +209,7 @@ fn parse(data: &[u8], root: &Path) -> Vec<Msg> {
     while let (Some(next), Some(action), Some(len)) = (rd(off), rd(off + 4), rd(off + 8)) {
         let start = off + 12;
         let Some(name) = data.get(start..start + len as usize) else { break };
-        let units: Vec<u16> = name.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = name.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
         let path = root.join(OsString::from_wide(&units));
         if action == FILE_ACTION_ADDED.0 || action == FILE_ACTION_RENAMED_NEW_NAME.0 {
             out.push(if path.is_dir() { Msg::NewDir(path) } else { Msg::Changed(path) });

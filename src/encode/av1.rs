@@ -92,7 +92,7 @@ fn fill_ycbcr(frame: &mut Frame<u16>, img: &DecodedImage) {
     let mut vs = pv.mut_slice(Default::default());
     let rows = img.rgba.chunks_exact(w * 4);
     for (((src, yr), ur), vr) in rows.zip(ys.rows_iter_mut()).zip(us.rows_iter_mut()).zip(vs.rows_iter_mut()) {
-        for (x, px) in src.chunks_exact(4).enumerate() {
+        for (x, px) in src.as_chunks::<4>().0.iter().enumerate() {
             let (r, g, b) = (f32::from(px[0]) * scale, f32::from(px[1]) * scale, f32::from(px[2]) * scale);
             let y = kr * r + kg * g + kb * b;
             yr[x] = to_10bit(y);
@@ -106,7 +106,7 @@ fn fill_alpha(frame: &mut Frame<u16>, img: &DecodedImage) {
     let w = img.width as usize;
     let mut ys = frame.planes[0].mut_slice(Default::default());
     for (src, yr) in img.rgba.chunks_exact(w * 4).zip(ys.rows_iter_mut()) {
-        for (x, px) in src.chunks_exact(4).enumerate() {
+        for (x, px) in src.as_chunks::<4>().0.iter().enumerate() {
             let a = u16::from(px[3]);
             yr[x] = (a << 2) | (a >> 6);
         }

@@ -112,6 +112,6 @@ pub struct DecodedImage {
 
 impl DecodedImage {
     pub fn has_alpha(&self) -> bool {
-        self.rgba.chunks_exact(4).any(|p| p[3] != 255)
+        self.rgba.as_chunks::<4>().0.iter().any(|p| p[3] != 255)
     }
 }

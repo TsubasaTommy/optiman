@@ -287,6 +287,17 @@
     font-family: var(--mincho); font-weight: 600; font-size: 22px; line-height: 1.6; letter-spacing: .03em;
     font-feature-settings: "palt"; word-break: auto-phrase; margin: 0 0 16px;
   }
+  /* The four quality levels at a glance: one photo, one row per level. */
+  .levels { margin-bottom: 8px; table-layout: fixed; }
+  .levels thead th:first-child { width: 5.5em; }
+  .levels thead th:last-child { width: 32%; }
+  .levels th:first-child { padding-left: 10px; }
+  .levels tbody th { font-family: var(--mincho); font-weight: 600; font-size: 20px; line-height: 1.4; letter-spacing: .04em; }
+  .levels tbody th .sub { display: block; font-family: var(--gothic); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+  .levels tbody td { vertical-align: middle; }
+  .levels tbody th { vertical-align: middle; }
+  .levels tr.is-default > * { background: var(--tint); }
+  .levels .ok { color: var(--ok); font-weight: 700; }
   /* Measured sizes: each value carries a meter whose track is the original file. */
   .measure { table-layout: fixed; }
   .measure .c-name { width: 24%; }
@@ -294,10 +305,10 @@
   .measure th .sub { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
   .measure thead th, .measure tbody td { padding-left: 10px; padding-right: 10px; }
   .measure .v { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
-  .measure .cg { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; align-items: center; }
-  .measure .cg .v { grid-column: 1 / -1; grid-row: 1; }
-  .measure .cg .meter { grid-column: 1; grid-row: 2; margin-top: 0; }
-  .measure .cg .pct { grid-column: 2; grid-row: 2; }
+  .cg { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; align-items: center; }
+  .cg .v { grid-column: 1 / -1; grid-row: 1; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
+  .cg .meter { grid-column: 1; grid-row: 2; margin-top: 0; }
+  .cg .pct { grid-column: 2; grid-row: 2; font-size: 13px; color: var(--muted); white-space: nowrap; }
   .measure .cg .cell-note { grid-column: 1 / -1; grid-row: 3; }
   .measure .pct { font-size: 13px; color: var(--muted); white-space: nowrap; }
   .measure .cell-note { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
@@ -317,6 +328,11 @@
   .flow .f-note.ok { color: var(--ok); font-weight: 700; }
 
   @media (max-width: 639px) {
+    .levels thead th:first-child { width: 4.2rem; }
+    .levels thead th:last-child { width: 6.6rem; }
+    .levels thead th { white-space: normal; }
+    .levels tbody th { font-size: 18px; letter-spacing: 0; }
+    .levels td { font-size: 14px; }
     .measure { table-layout: auto; }
     .measure thead, .measure colgroup { display: none; }
     .measure, .measure tbody, .measure tr, .measure th { display: block; }
@@ -435,7 +451,23 @@ optiman install</code></pre></div>
     <section id="size">
       <h2>どれだけ小さくなるか</h2>
       <p class="claim">写真の PNG 10.6 MB は、劣化なしで 6.2 MB に。画質「高」なら 840 KB まで小さくなります。</p>
-      <p>実際の画像 4 枚を Optiman で変換して、サイズを測りました。画質は 4 段階から選べます。既定の「最高」は劣化なしで、画質はそのまま、容量だけが減ります。もっと減らしたいときは、設定で「高」「中」「低」を選びます。</p>
+      <p>画質は 4 段階から選べます。既定の「最高」は劣化なしで、画質はそのまま、容量だけが減ります。もっと減らしたいときは、設定で「高」「中」「低」を選びます。</p>
+      <div class="table-wrap">
+        <table class="levels">
+          <caption class="sr-only">画質ごとの中身と、写真の PNG 10.6 MB を変換したときのサイズ</caption>
+          <thead><tr><th scope="col">画質</th><th scope="col">どうなるか</th><th scope="col">写真の PNG 10.6 MB が</th></tr></thead>
+          <tbody>
+            <tr class="is-default"><th scope="row">最高<span class="sub">既定</span></th><td>劣化なし。<span class="ok">いつでも元に戻せる</span></td><td><span class="cg"><span class="v">6.2 MB</span><span class="pct">−41%</span><span class="meter" aria-hidden="true"><span style="--r: .59"></span></span></span></td></tr>
+            <tr><th scope="row">高</th><td>見た目ではほぼ区別できない</td><td><span class="cg"><span class="v">840 KB</span><span class="pct">−92%</span><span class="meter" aria-hidden="true"><span style="--r: .079"></span></span></span></td></tr>
+            <tr><th scope="row">中</th><td>拡大すると、細かい模様がわずかになめらかに見える</td><td><span class="cg"><span class="v">528 KB</span><span class="pct">−95%</span><span class="meter" aria-hidden="true"><span style="--r: .050"></span></span></span></td></tr>
+            <tr><th scope="row">低</th><td>岩肌や木の葉のような細かい模様がなめらかになる。拡大するとはっきり分かる</td><td><span class="cg"><span class="v">392 KB</span><span class="pct">−96%</span><span class="meter" aria-hidden="true"><span style="--r: .037"></span></span></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">3840×2160 の写真を PNG で保存したものを、Optiman で変換して測りました。JPEG はどの画質でも劣化なしで変換します (5.6 MB の写真が 4.4 MB に)。</p>
+
+      <h3>4 種類の画像で測った結果</h3>
+      <p>写真のほか、イラストやスクリーンショットでも測りました。</p>
       <div class="table-wrap">
         <table class="measure">
           <caption class="sr-only">4 枚の画像を画質ごとに変換したあとのサイズ。棒は元のサイズに対する大きさ</caption>
@@ -457,8 +489,6 @@ optiman install</code></pre></div>
           <colgroup><col><col class="c-default"><col></colgroup>
           <thead><tr><th scope="col"><span class="sr-only">項目</span></th><th scope="col">最高 (劣化なし、既定)</th><th scope="col">高・中・低 (非可逆)</th></tr></thead>
           <tbody>
-            <tr><th scope="row">画質</th><td data-label="最高">元とまったく同じ</td><td data-label="高・中・低">「高」なら見た目ではほぼ区別できない。「中」「低」は拡大すると分かることがある</td></tr>
-            <tr><th scope="row">大きさ</th><td data-label="最高">写真の PNG で約 6 割に</td><td data-label="高・中・低">写真の PNG で「高」は約 13 分の 1、「低」は約 27 分の 1 に</td></tr>
             <tr><th scope="row">元に戻す</th><td data-label="最高"><span class="ok">いつでも完全に戻せる</span></td><td data-label="高・中・低">戻せない。圧縮したあとの画質のまま</td></tr>
             <tr><th scope="row">JPEG</th><td data-label="最高">元のファイルに戻せる形で約 2 割減る</td><td data-label="高・中・低">同じ。JPEG はどの画質でも劣化なし</td></tr>
             <tr><th scope="row">向いているもの</th><td data-label="最高">大事な写真、あとで編集する画像</td><td data-label="高・中・低">見返すだけの画像、容量を大きく空けたいとき</td></tr>

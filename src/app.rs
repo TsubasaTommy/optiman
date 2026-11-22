@@ -83,13 +83,21 @@ pub fn register_agent(config_path: &Path, cfg: &Config, start_now: bool) -> Resu
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub effort: u8,
+    pub lossy: bool,
+    pub quality: u8,
     pub include: Vec<PathBuf>,
     pub exclude: Vec<PathBuf>,
 }
 
 impl Settings {
     pub fn from_config(cfg: &Config) -> Settings {
-        Settings { effort: cfg.effort, include: cfg.folder_paths(), exclude: cfg.exclude_folder_paths() }
+        Settings {
+            effort: cfg.effort,
+            lossy: cfg.lossy,
+            quality: cfg.quality,
+            include: cfg.folder_paths(),
+            exclude: cfg.exclude_folder_paths(),
+        }
     }
 }
 
@@ -103,6 +111,8 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
     }
     let mut cfg = Config::load(config_path).unwrap_or_default();
     cfg.effort = settings.effort;
+    cfg.lossy = settings.lossy;
+    cfg.quality = settings.quality;
     cfg.folders = settings.include.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.exclude_folders = settings.exclude.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.save(config_path)?;
@@ -122,6 +132,22 @@ pub fn effort_label(effort: u8) -> String {
     format!("{effort} ({hint})")
 }
 
+/// A short description for a lossy quality value (shown next to its slider).
+pub fn quality_label(quality: u8) -> String {
+    let hint = match quality {
+        90.. => "最高画質",
+        80..=89 => "高画質",
+        70..=79 => "標準",
+        _ => "小さい",
+    };
+    format!("{quality} ({hint})")
+}
+
+/// One line describing how photos are encoded.
+pub fn mode_label(cfg: &Config) -> String {
+    if cfg.lossy { format!("非可逆 品質 {} (JPEG は劣化なし)", cfg.quality) } else { "劣化なし".into() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +156,12 @@ mod tests {
     fn log_location_follows_the_config() {
         let custom = Path::new("/tmp/somewhere/config.toml");
         assert_eq!(log_path_for(custom), Path::new("/tmp/somewhere/optiman.log"));
+    }
+
+    #[test]
+    fn quality_labels() {
+        assert_eq!(quality_label(90), "90 (最高画質)");
+        assert_eq!(quality_label(60), "60 (小さい)");
     }
 
     #[test]

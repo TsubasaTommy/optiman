@@ -11,18 +11,19 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::{
     NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageFileType, NSBorderType,
-    NSButton, NSCell, NSLineBreakMode, NSModalResponseOK, NSOpenPanel, NSScrollView, NSSlider, NSTableColumn,
-    NSTableView, NSTableViewDataSource, NSTextField, NSView, NSWindow, NSWindowStyleMask,
+    NSButton, NSCell, NSControlStateValueOff, NSControlStateValueOn, NSLineBreakMode, NSModalResponseOK, NSOpenPanel,
+    NSScrollView, NSSlider, NSTableColumn, NSTableView, NSTableViewDataSource, NSTextField, NSView, NSWindow,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSDictionary, NSInteger, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
 
 use crate::app::{self, Settings};
-use crate::config::{Config, EFFORT_RANGE};
+use crate::config::{Config, EFFORT_RANGE, QUALITY_RANGE};
 
 const WIDTH: f64 = 560.0;
-const HEIGHT: f64 = 540.0;
+const HEIGHT: f64 = 624.0;
 
 /// Frame from top-left based coordinates (AppKit's origin is bottom-left).
 fn frame(x: f64, top: f64, w: f64, h: f64) -> NSRect {
@@ -34,10 +35,14 @@ pub struct Ivars {
     include: RefCell<Vec<PathBuf>>,
     exclude: RefCell<Vec<PathBuf>>,
     effort: Cell<u8>,
+    lossy: Cell<bool>,
+    quality: Cell<u8>,
     window: OnceCell<Retained<NSWindow>>,
     include_table: OnceCell<Retained<NSTableView>>,
     exclude_table: OnceCell<Retained<NSTableView>>,
     effort_label: OnceCell<Retained<NSTextField>>,
+    quality_slider: OnceCell<Retained<NSSlider>>,
+    quality_label: OnceCell<Retained<NSTextField>>,
 }
 
 define_class!(
@@ -83,6 +88,24 @@ define_class!(
             }
         }
 
+        #[unsafe(method(lossyChanged:))]
+        fn lossy_changed(&self, sender: &NSButton) {
+            let on = sender.state() == NSControlStateValueOn;
+            self.ivars().lossy.set(on);
+            if let Some(slider) = self.ivars().quality_slider.get() {
+                slider.setEnabled(on);
+            }
+        }
+
+        #[unsafe(method(qualityChanged:))]
+        fn quality_changed(&self, sender: &NSSlider) {
+            let value = (sender.doubleValue().round() as u8).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end());
+            self.ivars().quality.set(value);
+            if let Some(label) = self.ivars().quality_label.get() {
+                label.setStringValue(&NSString::from_str(&app::quality_label(value)));
+            }
+        }
+
         #[unsafe(method(addInclude:))]
         fn add_include(&self, _sender: Option<&AnyObject>) {
             self.add_folders(true);
@@ -107,6 +130,8 @@ define_class!(
         fn save(&self, _sender: Option<&AnyObject>) {
             let settings = Settings {
                 effort: self.ivars().effort.get(),
+                lossy: self.ivars().lossy.get(),
+                quality: self.ivars().quality.get(),
                 include: self.ivars().include.borrow().clone(),
                 exclude: self.ivars().exclude.borrow().clone(),
             };
@@ -134,10 +159,14 @@ impl Controller {
             include: RefCell::new(s.include),
             exclude: RefCell::new(s.exclude),
             effort: Cell::new(s.effort),
+            lossy: Cell::new(s.lossy),
+            quality: Cell::new(s.quality.clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())),
             window: OnceCell::new(),
             include_table: OnceCell::new(),
             exclude_table: OnceCell::new(),
             effort_label: OnceCell::new(),
+            quality_slider: OnceCell::new(),
+            quality_label: OnceCell::new(),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -264,7 +293,7 @@ impl Controller {
         let content = window.contentView().expect("content view");
 
         self.label(
-            "写真を JPEG XL に変換します。JPEG は元の JPEG にそのまま戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換するため、画質は一切劣化しません。HEIC と非可逆 WebP は変換しません。",
+            "写真を JPEG XL に変換します。既定では画質は一切劣化しません: JPEG は元の JPEG にそのまま戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。HEIC と非可逆 WebP は変換しません。",
             frame(20.0, 16.0, 520.0, 52.0),
             &content,
         );
@@ -294,24 +323,56 @@ impl Controller {
             &content,
         );
 
-        self.label("変換するフォルダ (サブフォルダも対象)", frame(20.0, 140.0, 400.0, 20.0), &content);
-        let include = self.folder_list(162.0, &content);
-        let _ = self.ivars().include_table.set(include);
-        self.button("追加…", sel!(addInclude:), frame(440.0, 162.0, 100.0, 30.0), &content);
-        self.button("削除", sel!(removeInclude:), frame(440.0, 196.0, 100.0, 30.0), &content);
+        let lossy = unsafe {
+            NSButton::checkboxWithTitle_target_action(
+                &NSString::from_str("非可逆で圧縮する (PNG・TIFF・BMP・ロスレス WebP。JPEG は常に劣化なし)"),
+                Some(target),
+                Some(sel!(lossyChanged:)),
+                mtm,
+            )
+        };
+        lossy.setState(if self.ivars().lossy.get() { NSControlStateValueOn } else { NSControlStateValueOff });
+        lossy.setFrame(frame(20.0, 142.0, 520.0, 22.0));
+        content.addSubview(&lossy);
 
-        self.label("除外するフォルダ (この中は変換しません)", frame(20.0, 288.0, 400.0, 20.0), &content);
-        let exclude = self.folder_list(310.0, &content);
+        self.label("品質", frame(40.0, 174.0, 90.0, 20.0), &content);
+        let quality = unsafe {
+            NSSlider::sliderWithValue_minValue_maxValue_target_action(
+                f64::from(self.ivars().quality.get()),
+                f64::from(*QUALITY_RANGE.start()),
+                f64::from(*QUALITY_RANGE.end()),
+                Some(target),
+                Some(sel!(qualityChanged:)),
+                mtm,
+            )
+        };
+        quality.setFrame(frame(130.0, 170.0, 300.0, 28.0));
+        quality.setEnabled(self.ivars().lossy.get());
+        content.addSubview(&quality);
+        let quality_label =
+            self.label(&app::quality_label(self.ivars().quality.get()), frame(440.0, 174.0, 110.0, 20.0), &content);
+        let _ = self.ivars().quality_slider.set(quality);
+        let _ = self.ivars().quality_label.set(quality_label);
+        self.label("下げるほど小さくなります。元の画質には戻せません", frame(130.0, 200.0, 400.0, 18.0), &content);
+
+        self.label("変換するフォルダ (サブフォルダも対象)", frame(20.0, 224.0, 400.0, 20.0), &content);
+        let include = self.folder_list(246.0, &content);
+        let _ = self.ivars().include_table.set(include);
+        self.button("追加…", sel!(addInclude:), frame(440.0, 246.0, 100.0, 30.0), &content);
+        self.button("削除", sel!(removeInclude:), frame(440.0, 280.0, 100.0, 30.0), &content);
+
+        self.label("除外するフォルダ (この中は変換しません)", frame(20.0, 372.0, 400.0, 20.0), &content);
+        let exclude = self.folder_list(394.0, &content);
         let _ = self.ivars().exclude_table.set(exclude);
-        self.button("追加…", sel!(addExclude:), frame(440.0, 310.0, 100.0, 30.0), &content);
-        self.button("削除", sel!(removeExclude:), frame(440.0, 344.0, 100.0, 30.0), &content);
+        self.button("追加…", sel!(addExclude:), frame(440.0, 394.0, 100.0, 30.0), &content);
+        self.button("削除", sel!(removeExclude:), frame(440.0, 428.0, 100.0, 30.0), &content);
 
         if let Some(hint) = super::image::viewer_hint() {
-            self.label(&hint, frame(20.0, 436.0, 520.0, 36.0), &content);
+            self.label(&hint, frame(20.0, 520.0, 520.0, 36.0), &content);
         }
 
-        self.button("キャンセル", sel!(cancel:), frame(330.0, 490.0, 100.0, 32.0), &content);
-        let save = self.button("保存", sel!(save:), frame(440.0, 490.0, 100.0, 32.0), &content);
+        self.button("キャンセル", sel!(cancel:), frame(330.0, 574.0, 100.0, 32.0), &content);
+        let save = self.button("保存", sel!(save:), frame(440.0, 574.0, 100.0, 32.0), &content);
         save.setKeyEquivalent(&NSString::from_str("\r"));
 
         window.center();

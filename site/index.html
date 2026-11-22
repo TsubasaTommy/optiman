@@ -455,6 +455,18 @@ optiman install</code></pre></div>
         </table>
       </div>
       <p class="small">「圧縮の強さ」で変わるのはサイズと時間だけで、画質は常に元と同じです。変換は低優先度の子プロセスで行うので、時間がかかっても作業の邪魔になりません。</p>
+      <h3>非可逆圧縮 (オプション)</h3>
+      <p>さらに小さくしたい場合は、設定画面の「非可逆で圧縮する」をオンにすると、PNG、TIFF、BMP、ロスレス WebP を非可逆の JPEG XL にします。品質は 60〜95 で選べます (既定 90。90 で見た目ではほぼ区別できません)。JPEG はこのときも元の JPEG に戻せるロスレスのままで、HEIC と非可逆 WebP は変換しません。</p>
+      <p>元の画素とは一致しなくなるので、元ファイルを消す前の確認は「デコードできて、元の画像と大きく違わないこと」に変わります。<code>restore</code> で戻せるのは圧縮したあとの画素で、元の画質には戻せません。</p>
+      <div class="table-wrap">
+        <table class="stack">
+          <thead><tr><th scope="col">4K の PNG</th><th scope="col">ロスレス</th><th scope="col">品質 90 (非可逆)</th><th scope="col">品質 60 (非可逆)</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">写真 11.3 MB</th><td class="num" data-label="ロスレス">5.56 MB</td><td class="num" data-label="品質 90">1.06 MB (−91%)</td><td class="num" data-label="品質 60">0.42 MB (−96%)</td></tr>
+            <tr><th scope="row">動画のフレーム 10.3 MB</th><td class="num" data-label="ロスレス">5.76 MB</td><td class="num" data-label="品質 90">3.62 MB (−65%)</td><td class="num" data-label="品質 60">1.68 MB (−84%)</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section id="how">
@@ -477,7 +489,7 @@ optiman install</code></pre></div>
         <dt>安全な置き換え</dt>
         <dd>確認、一時ファイルへの書き込みと fsync、rename、元ファイルが変わっていないかの確認、の順に進めます。日時や Finder タグも引き継ぎます。</dd>
         <dt>設定画面</dt>
-        <dd>圧縮の強さ、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
+        <dd>圧縮の強さ、非可逆圧縮のオンとオフと品質、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
         <dt>OS のネイティブ API</dt>
         <dd>Rust から FSEvents、launchd、ImageIO、AppKit (macOS)、ReadDirectoryChangesW、IOCP、WIC、Win32 (Windows) を直接呼び出します。</dd>
         <dt>公式の JPEG XL 実装</dt>
@@ -491,10 +503,10 @@ optiman install</code></pre></div>
         <table class="cmds stack">
           <thead><tr><th scope="col">コマンド</th><th scope="col">内容</th></tr></thead>
           <tbody>
-            <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--yes</code>)</td></tr>
+            <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--lossy</code> <code>--lossless</code> <code>--quality 60-95</code> <code>--yes</code>)</td></tr>
             <tr><td><code>settings</code></td><td>設定画面を開きます</td></tr>
             <tr><td><code>status</code></td><td>状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
-            <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
+            <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ。<code>--lossy</code> <code>--quality</code> で非可逆に)</td></tr>
             <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
             <tr><td><code>start</code> <code>stop</code> <code>restart</code></td><td>監視を開始、停止、再起動します</td></tr>
             <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>

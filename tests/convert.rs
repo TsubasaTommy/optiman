@@ -64,7 +64,7 @@ fn jpeg_orientation_is_kept() {
     for o in 1..=8u16 {
         let jxl_bytes = jxl::transcode_jpeg(
             &fs::read(fixture(&format!("orient{o}.jpg"))).unwrap(),
-            &jxl::EncodeOptions { effort: 3, threads: 2 },
+            &jxl::EncodeOptions { effort: 3, threads: 2, quality: None },
         )
         .unwrap();
         let decoded = jxl::decode_exact(&jxl_bytes, false, false).unwrap();
@@ -102,6 +102,56 @@ fn lossy_sources_are_not_converted() {
         assert_matches!(outcome, Outcome::Skipped { remember: Some(_), .. }, "{name}");
         assert!(src.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "{name}: nothing written");
+    }
+}
+
+fn lossy_ctx(original: OriginalPolicy) -> ConvertCtx {
+    let cfg = Config { original, effort: 3, skip_if_larger: false, lossy: true, ..Config::default() };
+    ConvertCtx::new(&cfg)
+}
+
+#[test]
+fn lossy_mode_is_close_to_the_source_and_smaller() {
+    for name in ["alpha.png", "rgb16.png", "gray.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"] {
+        let dir = tempfile::tempdir().unwrap();
+        let src = copy_to(dir.path(), name);
+        let source = match platform::image::decode(&fs::read(&src).unwrap()) {
+            Ok(s) => s,
+            Err(jxl::EncodeError::Unsupported(e)) if cfg!(windows) && name.ends_with(".webp") => {
+                eprintln!("skipping {name}: {e}");
+                continue;
+            }
+            Err(e) => panic!("{name}: {e:?}"),
+        };
+        let lossless = converted(convert_file(&ctx(OriginalPolicy::Keep), &src), name);
+        let lossless_size = fs::metadata(&lossless).unwrap().len();
+        fs::remove_file(&lossless).unwrap();
+        let out = converted(convert_file(&lossy_ctx(OriginalPolicy::Keep), &src), name);
+        let bytes = fs::read(&out).unwrap();
+        if name == "gray.png" {
+            // A flat 608-byte gradient: lossy would be larger than the source, so it falls back to
+            // lossless, which is exact.
+            jxl::verify_lossless(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
+            continue;
+        }
+        let psnr = jxl::verify_lossy(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        eprintln!("{name}: lossless {lossless_size} B, lossy {} B, PSNR {psnr:.1} dB", bytes.len());
+        assert!((bytes.len() as u64) < lossless_size, "{name}: lossy should be smaller than lossless");
+    }
+}
+
+#[test]
+fn lossy_mode_keeps_jpeg_lossless_and_skips_lossy_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = copy_to(dir.path(), "progressive.jpg");
+    let original = fs::read(&src).unwrap();
+    let out = converted(convert_file(&lossy_ctx(OriginalPolicy::Keep), &src), "progressive.jpg");
+    let rebuilt = jxl::reconstruct_jpeg(&fs::read(&out).unwrap()).unwrap().expect("JPEG reconstruction data");
+    assert_eq!(rebuilt, original, "JPEG must stay byte-for-byte restorable in lossy mode");
+    for name in ["photo.heic", "photo.webp"] {
+        let src = copy_to(dir.path(), name);
+        assert_matches!(convert_file(&lossy_ctx(OriginalPolicy::Delete), &src), Outcome::Skipped { .. }, "{name}");
+        assert!(src.exists());
     }
 }
 

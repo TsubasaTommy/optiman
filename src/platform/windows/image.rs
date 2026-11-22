@@ -210,8 +210,8 @@ pub fn viewer_available() -> bool {
             color: ColorInfo::Srgb,
             orientation: 1,
         };
-        let opts = crate::jxl::EncodeOptions { effort: 1, threads: 1 };
-        crate::jxl::encode_lossless(&img, &crate::jxl::Metadata::default(), &opts)
+        let opts = crate::jxl::EncodeOptions { effort: 1, threads: 1, quality: None };
+        crate::jxl::encode_pixels(&img, &crate::jxl::Metadata::default(), &opts)
             .is_ok_and(|jxl| open(&jxl).and_then(|o| unsafe { o.decoder.GetFrame(0) }).is_ok())
     })
 }

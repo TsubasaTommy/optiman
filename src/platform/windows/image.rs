@@ -23,13 +23,15 @@ use windows::Win32::System::Com::StructuredStorage::{
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
-use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
 use windows::Win32::System::Variant::VT_UI2;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::{GUID, Interface, PCWSTR, w};
 
-use super::ensure_com;
+use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+
+use super::{ensure_com, reg_string, wide};
 use crate::image::{ColorInfo, SourceImage};
 use crate::jxl::EncodeError;
 use crate::{exif, metadata};
@@ -219,22 +221,9 @@ pub fn viewer_available() -> bool {
 /// The Windows build number (e.g. 26100 for Windows 11 24H2), from the registry because
 /// `GetVersionEx` reports a compatibility version.
 pub fn os_build() -> u32 {
-    let mut buf = [0u16; 16];
-    let mut size = size_of_val(&buf) as u32;
-    let ok = unsafe {
-        RegGetValueW(
-            HKEY_LOCAL_MACHINE,
-            w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"),
-            w!("CurrentBuildNumber"),
-            RRF_RT_REG_SZ,
-            None,
-            Some(buf.as_mut_ptr().cast()),
-            Some(&mut size),
-        )
-    }
-    .is_ok();
-    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    if ok { String::from_utf16_lossy(&buf[..end]).parse().unwrap_or(0) } else { 0 }
+    reg_string(HKEY_LOCAL_MACHINE, w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"), w!("CurrentBuildNumber"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 /// The JPEG XL Image Extension needs Windows 11 24H2 (build 26100) or later.
@@ -256,7 +245,6 @@ pub fn viewer_hint() -> Option<String> {
 /// for it by pressing the button). Returns whether winget reported success.
 /// Gives up after 10 minutes so an installer never hangs on the Store.
 pub fn install_viewer_extension() -> bool {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const TIMEOUT: Duration = Duration::from_secs(600);
     let spawn = |exe: &OsStr| {
         Command::new(exe)
@@ -266,7 +254,7 @@ pub fn install_viewer_extension() -> bool {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
+            .creation_flags(CREATE_NO_WINDOW.0)
             .spawn()
     };
     // winget is an app execution alias in %LOCALAPPDATA%\Microsoft\WindowsApps (normally on PATH).
@@ -292,10 +280,7 @@ pub fn install_viewer_extension() -> bool {
 
 /// Opens the extension's page in the Microsoft Store app.
 pub fn open_store_page() {
-    let url: Vec<u16> = format!("ms-windows-store://pdp/?ProductId={JXL_EXTENSION_STORE_ID}")
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
+    let url = wide(format!("ms-windows-store://pdp/?ProductId={JXL_EXTENSION_STORE_ID}"));
     unsafe {
         ShellExecuteW(None, w!("open"), PCWSTR(url.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
     }

@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use crate::APP_NAME;
 use crate::config::{self, Config, Quality};
 use crate::daemon::resolve_roots;
-use crate::platform::{autostart, events, paths};
+use crate::platform::{self, autostart, events, paths};
 
 pub fn default_config_path() -> PathBuf {
     match std::env::var_os("OPTIMAN_HOME") {
@@ -32,11 +32,14 @@ pub fn lock_path_for(config_path: &Path) -> PathBuf {
     config_path.with_file_name("agent.lock")
 }
 
-/// The running agent holds an exclusive lock on this file.
+/// Opens (creating it if needed) the file the running agent holds an exclusive lock on.
+pub fn open_lock(config_path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path_for(config_path))
+}
+
+/// True while an agent for this config runs (it holds the lock).
 pub fn agent_running(config_path: &Path) -> bool {
-    let Ok(f) =
-        fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path_for(config_path))
-    else {
+    let Ok(f) = open_lock(config_path) else {
         return false;
     };
     match f.try_lock() {
@@ -74,7 +77,7 @@ pub fn register_agent(config_path: &Path, cfg: &Config, start_now: bool) -> Resu
     let log_dir = log_path.parent().map(Path::to_path_buf).unwrap_or_else(paths::log_dir);
     let folders = resolve_roots(cfg);
     autostart::install(
-        &autostart::AgentSpec { exe: &exe, config: config_path, log_dir: &log_dir, folders: &folders },
+        &platform::AgentSpec { exe: &exe, config: config_path, log_dir: &log_dir, folders: &folders },
         start_now,
     )
 }
@@ -117,6 +120,24 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
     Ok(cfg)
 }
 
+/// Text shared by the two settings windows (AppKit and Win32 lay it out separately).
+pub mod ui_text {
+    pub const TITLE: &str = "Optiman の設定";
+    pub const INTRO: &str = "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。";
+    pub const EFFORT: &str = "圧縮の強さ";
+    pub const EFFORT_HINT: &str = "速い ← 時間をかけるほど小さくなります (画質は同じ) → 小さい";
+    pub const QUALITY: &str = "画質";
+    pub const INCLUDE: &str = "変換するフォルダ (サブフォルダも対象)";
+    pub const EXCLUDE: &str = "除外するフォルダ (この中は変換しません)";
+    pub const ADD: &str = "追加…";
+    pub const REMOVE: &str = "削除";
+    pub const CANCEL: &str = "キャンセル";
+    pub const SAVE: &str = "保存";
+    pub const SAVED: &str = "保存しました";
+    pub const SAVED_DETAIL: &str = "設定を反映しました。フォルダに写真が追加されると自動で JPEG XL に変換されます。";
+    pub const SAVE_FAILED: &str = "保存できませんでした";
+}
+
 /// A short description for an effort value (shown next to the slider).
 pub fn effort_label(effort: u8) -> String {
     let hint = match effort {
@@ -127,6 +148,21 @@ pub fn effort_label(effort: u8) -> String {
         _ => "最小 (時間がかかる)",
     };
     format!("{effort} ({hint})")
+}
+
+/// The settings in one line: quality, effort, originals and existing photos.
+pub fn summary(cfg: &Config) -> String {
+    format!("{} / 既存の写真: {}", encoding_summary(cfg), if cfg.scan_existing { "変換する" } else { "新規のみ" })
+}
+
+/// How photos are encoded and what happens to the originals.
+pub fn encoding_summary(cfg: &Config) -> String {
+    format!(
+        "画質: {} / 圧縮の強さ: {} / 元ファイル: {}",
+        mode_label(cfg),
+        effort_label(cfg.effort),
+        cfg.original.describe()
+    )
 }
 
 /// One line describing how photos are encoded.

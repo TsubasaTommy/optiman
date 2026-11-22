@@ -282,12 +282,17 @@ pub fn check_folder_safe(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The temporary file [`write_atomic`] writes before renaming it over `path`.
+pub fn temp_path(path: &Path) -> PathBuf {
+    path.with_extension("tmp")
+}
+
 /// Write via a temporary file + rename so readers never see a partial file.
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("フォルダを作成できません: {}", dir.display()))?;
     }
-    let tmp = path.with_extension("tmp");
+    let tmp = temp_path(path);
     fs::write(&tmp, data).with_context(|| format!("書き込みに失敗: {}", tmp.display()))?;
     fs::rename(&tmp, path).with_context(|| format!("書き込みに失敗: {}", path.display()))?;
     Ok(())

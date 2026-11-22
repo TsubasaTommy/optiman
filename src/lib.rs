@@ -30,3 +30,15 @@ pub const APP_NAME: &str = "optiman";
 /// Name shown to people (windows, the app bundle, the installer).
 pub const DISPLAY_NAME: &str = "Optiman";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Locks a mutex even if a thread panicked while holding it: every value guarded here stays
+/// consistent between statements, so a poisoned lock is still safe to use.
+pub(crate) trait LockUnpoisoned<T> {
+    fn lock_unpoisoned(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockUnpoisoned<T> for std::sync::Mutex<T> {
+    fn lock_unpoisoned(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}

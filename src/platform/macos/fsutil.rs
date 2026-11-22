@@ -1,9 +1,9 @@
 //! File-system helpers: cloud placeholders, timestamps, Trash, Finder metadata.
 
 use std::ffi::CString;
-use std::fs::{File, FileTimes, Metadata};
+use std::fs::{File, Metadata};
 use std::io;
-use std::os::macos::fs::{FileTimesExt, MetadataExt};
+use std::os::macos::fs::MetadataExt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -34,21 +34,6 @@ pub fn arrival_time(md: &Metadata) -> SystemTime {
 /// macOS has no mandatory share locks; completion is judged by the settle period alone.
 pub fn writer_active(_path: &Path) -> bool {
     false
-}
-
-/// Copy modified/accessed/created times from the source.
-pub fn copy_times(dst: &File, src: &Metadata) -> io::Result<()> {
-    let mut t = FileTimes::new();
-    if let Ok(m) = src.modified() {
-        t = t.set_modified(m);
-    }
-    if let Ok(a) = src.accessed() {
-        t = t.set_accessed(a);
-    }
-    if let Ok(c) = src.created() {
-        t = t.set_created(c);
-    }
-    dst.set_times(t)
 }
 
 /// Finder tags and download origin are worth keeping; other xattrs (quarantine, macl, FinderInfo

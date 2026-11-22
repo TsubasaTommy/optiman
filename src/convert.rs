@@ -162,16 +162,22 @@ enum Target {
     Done(PathBuf),
 }
 
+/// Output names next to `path`: `stem.ext`, then `stem-tag.ext`, `stem-tag-2.ext` … `-99`.
+pub fn candidate_names(path: &Path, tag: &str, ext: &str) -> impl Iterator<Item = PathBuf> {
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let (tag, ext) = (tag.to_string(), ext.to_string());
+    [format!("{stem}.{ext}"), format!("{stem}-{tag}.{ext}")]
+        .into_iter()
+        .chain((2..100).map(move |n| format!("{stem}-{tag}-{n}.{ext}")))
+        .map(move |name| dir.join(name))
+}
+
 /// `IMG_1.jpg` → `IMG_1.jxl`; on a name clash `IMG_1-jpg.jxl`, then `IMG_1-jpg-2.jxl` ...
 fn choose_output(src: &Path, src_mtime: SystemTime, keep_mode: bool) -> Option<Target> {
-    let dir = src.parent()?;
-    let stem = src.file_stem()?.to_string_lossy().into_owned();
+    src.file_stem()?;
     let ext = src.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    let names = [format!("{stem}.{OUTPUT_EXTENSION}"), format!("{stem}-{ext}.{OUTPUT_EXTENSION}")]
-        .into_iter()
-        .chain((2..100).map(|n| format!("{stem}-{ext}-{n}.{OUTPUT_EXTENSION}")));
-    for name in names {
-        let candidate = dir.join(name);
+    for candidate in candidate_names(src, &ext, OUTPUT_EXTENSION) {
         match fs::symlink_metadata(&candidate) {
             Err(_) => return Some(Target::New(candidate)),
             // We copy the source mtime onto our output, so a match means "already converted".
@@ -329,7 +335,7 @@ pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
 fn write_temp(tmp: &Path, data: &[u8], src: &fs::Metadata) -> std::io::Result<()> {
     let mut f = File::create(tmp)?;
     f.write_all(data)?;
-    fsutil::copy_times(&f, src)?;
+    platform::copy_times(&f, src)?;
     f.sync_all()?;
     Ok(())
 }

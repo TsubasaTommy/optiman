@@ -9,8 +9,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
+use crate::LockUnpoisoned;
 use crate::app::{self, agent_running, default_config_path, lock_path_for, log_path_for};
-use crate::config::{self, Config, OriginalPolicy, Quality};
+use crate::config::{self, Config, EFFORT_RANGE, OriginalPolicy, Quality};
 use crate::convert::{ConvertCtx, Outcome, convert_guarded, default_threads, human};
 use crate::daemon::{self, state_path_for};
 use crate::filter::Filter;
@@ -84,6 +85,34 @@ pub enum Command {
     },
 }
 
+/// Encoding options shared by `install` and `convert`; unset ones keep the config file's value.
+#[derive(Args, Debug, Default)]
+pub struct EncodingArgs {
+    /// 変換後の元ファイルの扱い
+    #[arg(long, value_enum)]
+    pub original: Option<OriginalPolicy>,
+    /// 圧縮の強さ 1-9 (変わるのはサイズと時間だけ)
+    #[arg(long, value_parser = clap::value_parser!(u8).range(i64::from(*EFFORT_RANGE.start())..=i64::from(*EFFORT_RANGE.end())))]
+    pub effort: Option<u8>,
+    /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
+    #[arg(long, value_enum)]
+    pub quality: Option<Quality>,
+}
+
+impl EncodingArgs {
+    fn apply(&self, cfg: &mut Config) {
+        if let Some(o) = self.original {
+            cfg.original = o;
+        }
+        if let Some(e) = self.effort {
+            cfg.effort = e;
+        }
+        if let Some(q) = self.quality {
+            cfg.quality = q;
+        }
+    }
+}
+
 #[derive(Args, Debug, Default)]
 pub struct InstallArgs {
     /// 変換するフォルダ (複数指定可。既定: ピクチャフォルダ)
@@ -98,15 +127,8 @@ pub struct InstallArgs {
     /// 新しく追加された写真だけ変換する
     #[arg(long)]
     pub new_only: bool,
-    /// 変換後の元ファイルの扱い
-    #[arg(long, value_enum)]
-    pub original: Option<OriginalPolicy>,
-    /// 圧縮の強さ 1-9 (変わるのはサイズと時間だけ)
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
-    pub effort: Option<u8>,
-    /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
-    #[arg(long, value_enum)]
-    pub quality: Option<Quality>,
+    #[command(flatten)]
+    pub encoding: EncodingArgs,
     /// 確認なしで進める
     #[arg(long, short = 'y')]
     pub yes: bool,
@@ -123,15 +145,8 @@ pub struct ConvertArgs {
     /// 変換するファイルまたはフォルダ
     #[arg(required = true)]
     pub paths: Vec<PathBuf>,
-    /// 変換後の元ファイルの扱い (既定: 設定ファイルの値)
-    #[arg(long, value_enum)]
-    pub original: Option<OriginalPolicy>,
-    /// 圧縮の強さ 1-9
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
-    pub effort: Option<u8>,
-    /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
-    #[arg(long, value_enum)]
-    pub quality: Option<Quality>,
+    #[command(flatten)]
+    pub encoding: EncodingArgs,
     /// 何が変換されるか表示するだけ
     #[arg(long)]
     pub dry_run: bool,
@@ -227,13 +242,7 @@ pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
             return 0;
         }
     };
-    let lock = match fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(lock_path_for(config_path))
-    {
+    let lock = match app::open_lock(config_path) {
         Ok(f) => f,
         Err(e) => {
             crate::error!("ロックファイルを開けません: {e}");
@@ -339,7 +348,7 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
         cfg.exclude_folders = args.exclude.iter().map(|f| config::contract_tilde(f)).collect();
     }
 
-    cfg.original = match args.original {
+    cfg.original = match args.encoding.original {
         Some(p) => p,
         None => {
             let current = match cfg.original {
@@ -362,12 +371,7 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     } else {
         prompt.confirm("すでにフォルダにある写真も変換しますか? (いいえ = 新しく追加された写真のみ)", cfg.scan_existing)
     };
-    if let Some(e) = args.effort {
-        cfg.effort = e;
-    }
-    if let Some(q) = args.quality {
-        cfg.quality = q;
-    }
+    args.encoding.apply(&mut cfg);
     cfg.validate()?;
 
     if cfg.scan_existing {
@@ -404,14 +408,7 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     }
     app::register_agent(config_path, &cfg, !args.no_start)?;
     println!("自動起動に登録しました ({})", autostart::describe());
-    println!(
-        "監視: {}  / 画質: {}  / 圧縮の強さ: {}  / 元ファイル: {}  / 既存の写真: {}",
-        cfg.folders.join(", "),
-        app::mode_label(&cfg),
-        app::effort_label(cfg.effort),
-        cfg.original.describe(),
-        if cfg.scan_existing { "変換する" } else { "新規のみ" }
-    );
+    println!("監視: {} / {}", cfg.folders.join(", "), app::summary(&cfg));
     if let Some(hint) = platform::image::viewer_hint() {
         println!("注意: {hint}");
     }
@@ -440,15 +437,15 @@ fn purge_files(config_path: &Path) -> Vec<PathBuf> {
     let log = log_path_for(config_path);
     let mut files = vec![
         config_path.to_path_buf(),
-        config_path.with_extension("tmp"),
-        state.clone(),
-        state.with_extension("tmp"),
+        config::temp_path(config_path),
+        config::temp_path(&state),
+        state,
         lock_path_for(config_path),
+        logger::backup_path(&log),
         log.clone(),
-        log.with_extension("log.1"),
     ];
     if let Some(log_dir) = log.parent() {
-        files.push(log_dir.join("launchd.log"));
+        files.extend(autostart::LOG_FILES.iter().map(|f| log_dir.join(f)));
     }
     let removed: Vec<PathBuf> = files.into_iter().filter(|f| fs::remove_file(f).is_ok()).collect();
     for dir in [config_path.parent(), log.parent()].into_iter().flatten() {
@@ -475,13 +472,7 @@ fn status(config_path: &Path) -> Result<()> {
     }
     match Config::load(config_path) {
         Ok(cfg) => {
-            println!(
-                "画質: {} / 圧縮の強さ: {} / 元ファイル: {} / 既存の写真: {}",
-                app::mode_label(&cfg),
-                app::effort_label(cfg.effort),
-                cfg.original.describe(),
-                if cfg.scan_existing { "変換する" } else { "新規のみ" }
-            );
+            println!("{}", app::summary(&cfg));
             for f in cfg.folder_paths() {
                 let access = match fs::read_dir(&f) {
                     Ok(_) => "OK".to_string(),
@@ -524,15 +515,7 @@ fn show_config(config_path: &Path) -> Result<()> {
 
 fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     let mut cfg = Config::load(config_path).unwrap_or_default();
-    if let Some(o) = args.original {
-        cfg.original = o;
-    }
-    if let Some(e) = args.effort {
-        cfg.effort = e;
-    }
-    if let Some(q) = args.quality {
-        cfg.quality = q;
-    }
+    args.encoding.apply(&mut cfg);
     cfg.validate()?;
     let filter = Filter::new(&cfg);
     let mut files = Vec::new();
@@ -553,19 +536,12 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     let state_path = state_path_for(config_path);
     let state = Arc::new(Mutex::new(State::load(&state_path)));
     // Manual runs retry files the agent skipped earlier.
-    state.lock().unwrap_or_else(|e| e.into_inner()).skipped.clear();
+    state.lock_unpoisoned().skipped.clear();
     let jobs = args.jobs.unwrap_or(1).max(1);
     let mut ctx = ConvertCtx::new(&cfg);
     ctx.threads = (default_threads() * 2 / jobs).max(1); // user-initiated: use the whole machine
     ctx.dry_run = args.dry_run;
-    println!(
-        "{} 件 / 画質: {} / 圧縮の強さ: {} / 元ファイル: {}{}",
-        files.len(),
-        app::mode_label(&cfg),
-        app::effort_label(cfg.effort),
-        cfg.original.describe(),
-        if args.dry_run { " (dry run)" } else { "" }
-    );
+    println!("{} 件 / {}{}", files.len(), app::encoding_summary(&cfg), if args.dry_run { " (dry run)" } else { "" });
 
     let queue = Mutex::new(files);
     let totals = Mutex::new((0usize, 0u64, 0u64, 0usize));
@@ -573,15 +549,13 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
         for _ in 0..jobs {
             s.spawn(|| {
                 loop {
-                    let Some(path) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop() else { break };
+                    let Some(path) = queue.lock_unpoisoned().pop() else { break };
                     let outcome = convert_guarded(&ctx, &path);
                     if let Some(line) = outcome.describe(&path) {
                         println!("{line}");
                     }
-                    if let Some((fp, reason)) = outcome.remember() {
-                        state.lock().unwrap_or_else(|e| e.into_inner()).record_skip(&path, fp, reason);
-                    }
-                    let mut t = totals.lock().unwrap_or_else(|e| e.into_inner());
+                    state.lock_unpoisoned().record(&path, &outcome);
+                    let mut t = totals.lock_unpoisoned();
                     match outcome {
                         Outcome::Converted { before, after, .. } => {
                             t.0 += 1;
@@ -595,10 +569,10 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
             });
         }
     });
-    let (n, before, after, failed) = *totals.lock().unwrap_or_else(|e| e.into_inner());
+    let (n, before, after, failed) = *totals.lock_unpoisoned();
     if !args.dry_run {
         println!("完了: {n} 件変換 ({} → {})、失敗 {failed} 件", human(before), human(after));
-        let st = state.lock().unwrap_or_else(|e| e.into_inner());
+        let st = state.lock_unpoisoned();
         let _ = st.save(&state_path);
     }
     if failed > 0 {

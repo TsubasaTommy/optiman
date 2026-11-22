@@ -8,17 +8,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use crate::convert::candidate_names;
 use crate::jxl;
-use crate::platform::{fsutil, image};
+use crate::platform::{self, image};
 
 /// Picks `name.ext`, or `name-restored.ext`, `name-restored-2.ext` … if taken.
 fn free_name(jxl_path: &Path, ext: &str) -> Result<PathBuf> {
-    let dir = jxl_path.parent().context("フォルダが不明")?;
-    let stem = jxl_path.file_stem().context("ファイル名が不明")?.to_string_lossy().into_owned();
-    let candidates = [format!("{stem}.{ext}"), format!("{stem}-restored.{ext}")]
-        .into_iter()
-        .chain((2..100).map(|n| format!("{stem}-restored-{n}.{ext}")));
-    candidates.map(|n| dir.join(n)).find(|p| !p.exists()).context("出力ファイル名を決められません")
+    jxl_path.file_stem().context("ファイル名が不明")?;
+    candidate_names(jxl_path, "restored", ext).find(|p| !p.exists()).context("出力ファイル名を決められません")
 }
 
 pub fn restore_file(path: &Path, delete_jxl: bool) -> Result<PathBuf> {
@@ -37,7 +34,7 @@ pub fn restore_file(path: &Path, delete_jxl: bool) -> Result<PathBuf> {
     let out = free_name(path, ext)?;
     fs::write(&out, &bytes).with_context(|| format!("書き込めません: {}", out.display()))?;
     if let Ok(f) = File::options().write(true).open(&out) {
-        let _ = fsutil::copy_times(&f, &md);
+        let _ = platform::copy_times(&f, &md);
     }
     if delete_jxl {
         fs::remove_file(path).with_context(|| format!("削除できません: {}", path.display()))?;

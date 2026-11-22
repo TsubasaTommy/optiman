@@ -11,7 +11,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, GetSysColorBrush, HFONT, HGDIOBJ,
 };
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     ICC_BAR_CLASSES, ICC_STANDARD_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, TBM_SETPAGESIZE, TBM_SETPOS,
@@ -26,20 +26,20 @@ use windows::Win32::UI::Shell::{
     FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetMessageW, HMENU, IDC_ARROW, IDCANCEL, IDOK, IsDialogMessageW, LB_ADDSTRING, LB_ERR, LB_GETCURSEL,
-    LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY, LoadCursorW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK,
-    MESSAGEBOX_STYLE, MSG, MessageBoxW, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassExW,
-    SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetWindowPos,
-    SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
-    WM_DESTROY, WM_DPICHANGED, WM_HSCROLL, WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    BM_SETCHECK, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
+    DestroyWindow, DispatchMessageW, GetMessageW, HMENU, IDC_ARROW, IDCANCEL, IDOK, IsDialogMessageW, LB_ADDSTRING,
+    LB_ERR, LB_GETCURSEL, LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY, LoadCursorW, MB_ICONERROR,
+    MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MSG, MessageBoxW, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW,
+    SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE,
+    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_HSCROLL, WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD,
     WS_EX_CONTROLPARENT, WS_GROUP, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, w};
 
-use super::{ensure_com, image};
-use crate::app::{self, Settings};
-use crate::config::{Config, EFFORT_RANGE, Quality};
+use super::{ensure_com, image, take_co_string, wide};
+use crate::app::{self, Settings, ui_text as text};
+use crate::config::{Config, DEFAULT_EFFORT, EFFORT_RANGE, Quality};
 
 const WIDTH: i32 = 560;
 const HEIGHT: i32 = 624;
@@ -56,9 +56,6 @@ const ID_INCLUDE_LIST: u16 = 202;
 const ID_EXCLUDE_LIST: u16 = 203;
 /// `TBM_GETPOS` is `WM_USER` (not exported by the windows crate).
 const TBM_GETPOS: u32 = 0x0400;
-/// Radio button message and style (winuser.h).
-const BM_SETCHECK: u32 = 0x00F1;
-const BS_AUTORADIOBUTTON: u32 = 0x0009;
 /// Posted by the extension installer thread; `wparam` is 1 on success.
 const WM_EXTENSION_DONE: u32 = WM_APP + 1;
 
@@ -90,10 +87,6 @@ thread_local! {
     static UI: RefCell<Option<Rc<Ui>>> = const { RefCell::new(None) };
 }
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
 fn scale(v: i32, dpi: u32) -> i32 {
     (i64::from(v) * i64::from(dpi) / 96) as i32
 }
@@ -101,7 +94,8 @@ fn scale(v: i32, dpi: u32) -> i32 {
 fn message_box(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) {
     let text = wide(text);
     unsafe {
-        MessageBoxW(Some(owner), PCWSTR(text.as_ptr()), w!("Optiman"), style | MB_OK);
+        let caption = wide(crate::DISPLAY_NAME);
+        MessageBoxW(Some(owner), PCWSTR(text.as_ptr()), PCWSTR(caption.as_ptr()), style | MB_OK);
     }
 }
 
@@ -123,10 +117,7 @@ fn pick_folder(owner: HWND, title: &str) -> Option<PathBuf> {
         let _ = dialog.SetTitle(PCWSTR(title.as_ptr()));
         dialog.Show(Some(owner)).ok()?; // cancelled → error
         let item = dialog.GetResult().ok()?;
-        let name = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
-        let path = name.to_string().ok();
-        CoTaskMemFree(Some(name.0 as *const c_void));
-        path.map(PathBuf::from)
+        take_co_string(item.GetDisplayName(SIGDN_FILESYSPATH).ok()?).map(PathBuf::from)
     }
 }
 
@@ -169,12 +160,9 @@ impl Ui {
     }
 
     fn build(&self) {
-        self.label(
-            "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。",
-            [20, 16, 520, 52],
-        );
+        self.label(text::INTRO, [20, 16, 520, 52]);
 
-        self.label("圧縮の強さ", [20, 86, 106, 20]);
+        self.label(text::EFFORT, [20, 86, 106, 20]);
         let slider = self.add_child(
             TRACKBAR_CLASSW,
             "",
@@ -190,9 +178,9 @@ impl Ui {
         }
         self.slider.set(slider);
         self.effort_label.set(self.label(&app::effort_label(self.effort.get()), [440, 86, 110, 20]));
-        self.label("速い ← 時間をかけるほど小さくなります (画質は同じ) → 小さい", [130, 112, 400, 18]);
+        self.label(text::EFFORT_HINT, [130, 112, 400, 18]);
 
-        self.label("画質", [20, 148, 106, 20]);
+        self.label(text::QUALITY, [20, 148, 106, 20]);
         let widths = [150, 70, 70, 70];
         let mut x = 130;
         for (i, (q, w)) in Quality::ALL.iter().zip(widths).enumerate() {
@@ -201,7 +189,7 @@ impl Ui {
             let radio = self.add_child(
                 WC_BUTTONW,
                 q.name(),
-                group | WINDOW_STYLE(BS_AUTORADIOBUTTON),
+                group | WINDOW_STYLE(BS_AUTORADIOBUTTON as u32),
                 ID_QUALITY + i as u16,
                 [x, 146, w, 22],
             );
@@ -213,18 +201,18 @@ impl Ui {
             x += w + 10;
         }
         // WS_GROUP here closes the radio group, so arrow keys stay among the four choices.
-        let note = self.add_child(WC_STATICW, &quality_note(self.quality.get()), WS_GROUP, 0, [130, 174, 410, 40]);
+        let note = self.add_child(WC_STATICW, self.quality.get().describe(), WS_GROUP, 0, [130, 174, 410, 40]);
         self.quality_note.set(note);
 
-        self.label("変換するフォルダ (サブフォルダも対象)", [20, 226, 400, 20]);
+        self.label(text::INCLUDE, [20, 226, 400, 20]);
         self.include_list.set(self.list(ID_INCLUDE_LIST, [20, 248, 410, 110]));
-        self.button("追加…", ID_ADD_INCLUDE, [440, 248, 100, 28]);
-        self.button("削除", ID_REMOVE_INCLUDE, [440, 282, 100, 28]);
+        self.button(text::ADD, ID_ADD_INCLUDE, [440, 248, 100, 28]);
+        self.button(text::REMOVE, ID_REMOVE_INCLUDE, [440, 282, 100, 28]);
 
-        self.label("除外するフォルダ (この中は変換しません)", [20, 374, 400, 20]);
+        self.label(text::EXCLUDE, [20, 374, 400, 20]);
         self.exclude_list.set(self.list(ID_EXCLUDE_LIST, [20, 396, 410, 110]));
-        self.button("追加…", ID_ADD_EXCLUDE, [440, 396, 100, 28]);
-        self.button("削除", ID_REMOVE_EXCLUDE, [440, 430, 100, 28]);
+        self.button(text::ADD, ID_ADD_EXCLUDE, [440, 396, 100, 28]);
+        self.button(text::REMOVE, ID_REMOVE_EXCLUDE, [440, 430, 100, 28]);
 
         if let Some(hint) = image::viewer_hint() {
             let extension = image::viewer_extension_supported();
@@ -238,8 +226,8 @@ impl Ui {
             }
         }
 
-        self.button("キャンセル", IDCANCEL.0 as u16, [330, 578, 100, 30]);
-        self.button("保存", IDOK.0 as u16, [440, 578, 100, 30]);
+        self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 578, 100, 30]);
+        self.button(text::SAVE, IDOK.0 as u16, [440, 578, 100, 30]);
         self.refresh_lists();
     }
 
@@ -277,7 +265,7 @@ impl Ui {
             unsafe {
                 SendMessageW(list, LB_RESETCONTENT, None, None);
                 for p in paths.borrow().iter() {
-                    let text = wide(&p.to_string_lossy());
+                    let text = wide(p);
                     SendMessageW(list, LB_ADDSTRING, None, Some(LPARAM(text.as_ptr() as isize)));
                 }
             }
@@ -309,7 +297,7 @@ impl Ui {
 
     fn effort_changed(&self) {
         let pos = unsafe { SendMessageW(self.slider.get(), TBM_GETPOS, None, None) }.0;
-        let effort = u8::try_from(pos).unwrap_or(7).clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end());
+        let effort = u8::try_from(pos).unwrap_or(DEFAULT_EFFORT).clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end());
         if effort != self.effort.get() {
             self.effort.set(effort);
             set_text(self.effort_label.get(), &app::effort_label(effort));
@@ -319,7 +307,7 @@ impl Ui {
     fn quality_changed(&self, index: usize) {
         if let Some(&q) = Quality::ALL.get(index) {
             self.quality.set(q);
-            set_text(self.quality_note.get(), &quality_note(q));
+            set_text(self.quality_note.get(), q.describe());
         }
     }
 
@@ -333,12 +321,12 @@ impl Ui {
         let window = self.window.get();
         match app::save_settings(&self.config_path, &settings) {
             Ok(_) => {
-                message_box(window, "保存しました。新しい設定で監視を再開しました。", MB_ICONINFORMATION);
+                message_box(window, &format!("{}\n{}", text::SAVED, text::SAVED_DETAIL), MB_ICONINFORMATION);
                 unsafe {
                     let _ = DestroyWindow(window);
                 }
             }
-            Err(e) => message_box(window, &format!("保存できませんでした:\n{e:#}"), MB_ICONERROR),
+            Err(e) => message_box(window, &format!("{}:\n{e:#}", text::SAVE_FAILED), MB_ICONERROR),
         }
     }
 
@@ -384,12 +372,6 @@ impl Ui {
             }
         }
     }
-}
-
-/// The line under the quality choices: what the selected level means. (That JPEG is always
-/// lossless is said in the description at the top of the window.)
-fn quality_note(q: Quality) -> String {
-    q.describe().to_string()
 }
 
 extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -507,11 +489,12 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
     unsafe {
         let _ = AdjustWindowRectExForDpi(&mut rect, style, false, WS_EX_CONTROLPARENT, dpi);
     }
+    let title = wide(text::TITLE);
     let window = unsafe {
         CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class_name,
-            w!("Optiman の設定"),
+            PCWSTR(title.as_ptr()),
             style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

@@ -232,12 +232,15 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             drop(data);
             let mut jxl = jxl::encode_pixels(&img, &meta, &ctx.options()).map_err(encode_err)?;
             let mut lossy = ctx.quality.is_some();
-            if lossy && jxl.len() as u64 >= size {
-                // Flat images (graphics, gradients) can come out larger lossy than the source;
-                // lossless is then both smaller and exact.
+            if lossy && jxl.len() as u64 * 2 > size {
+                // Lossy barely helped: screenshots and graphics are often smaller lossless (and
+                // exact). Photos shrink far below half and never pay for this second encode.
                 let lossless = EncodeOptions { quality: None, ..ctx.options() };
-                jxl = jxl::encode_pixels(&img, &meta, &lossless).map_err(encode_err)?;
-                lossy = false;
+                let exact = jxl::encode_pixels(&img, &meta, &lossless).map_err(encode_err)?;
+                if exact.len() <= jxl.len() {
+                    jxl = exact;
+                    lossy = false;
+                }
             }
             if let Some(skip) = too_big(&jxl) {
                 return Err(skip);

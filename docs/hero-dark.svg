@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 480" width="1100" height="480" role="img" aria-labelledby="title">
-<title id="title">写真はそのまま。容量だけ、小さく。ピクチャフォルダの IMG_2041.jpg (2.29 MB) が IMG_2041.jxl (1.85 MB) に、夕景_4K.png (10.3 MB) が夕景_4K.jxl (5.76 MB) に変換され、IMG_2042.heic はそのまま残る様子</title>
+<title id="title">写真はそのまま。容量だけ、小さく。ピクチャフォルダの IMG_2041.jpg (5.6 MB) が IMG_2041.jxl (4.4 MB) に、夕景_4K.png (10.6 MB) が夕景_4K.jxl (6.2 MB) に変換され、IMG_2042.heic はそのまま残る様子</title>
 <style>
   .card { fill: #4b4b4a; }
   .head { fill: #ffffff; font-family: "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Yu Mincho", YuMincho, "Noto Serif JP", "Noto Serif CJK JP", serif; font-weight: 600; font-size: 58px; letter-spacing: .04em; font-feature-settings: "palt"; }
@@ -30,8 +30,8 @@
   @keyframes in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes out { from { opacity: 1; } to { opacity: 0; } }
   @keyframes work { 0%, 18.18% { opacity: 0; } 18.19%, 99.9% { opacity: 1; } 100% { opacity: 0; } }
-  @keyframes shrink0 { from { transform: scaleX(1); } to { transform: scaleX(0.81); } }
-  @keyframes shrink1 { from { transform: scaleX(1); } to { transform: scaleX(0.56); } }
+  @keyframes shrink0 { from { transform: scaleX(1); } to { transform: scaleX(0.79); } }
+  @keyframes shrink1 { from { transform: scaleX(1); } to { transform: scaleX(0.59); } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
 <defs>
@@ -55,10 +55,10 @@
     <g transform="translate(16 14)"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke-width="1.4" class="stroke"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" class="mutedfill"/></g>
     <text x="52" y="30" class="name out" style="animation-delay:1.8s">IMG_2041.jpg</text>
     <text x="52" y="30" class="name in" style="animation-delay:1.8s">IMG_2041.jxl</text>
-    <text x="448" y="30" class="size out" text-anchor="end" style="animation-delay:1.8s">2.29 MB</text>
-    <text x="448" y="30" class="size in" text-anchor="end" style="animation-delay:1.8s">1.85 MB<tspan class="muted" dx="6">−19%</tspan></text>
+    <text x="448" y="30" class="size out" text-anchor="end" style="animation-delay:1.8s">5.6 MB</text>
+    <text x="448" y="30" class="size in" text-anchor="end" style="animation-delay:1.8s">4.4 MB<tspan class="muted" dx="6">−21%</tspan></text>
     <rect x="52" y="42" width="396" height="6" rx="3" class="track"/>
-    <rect x="52" y="42" width="396" height="6" rx="3" class="bar" style="transform: scaleX(0.81); animation: shrink0 1s cubic-bezier(.2,.7,.2,1) 0.8s both"/>
+    <rect x="52" y="42" width="396" height="6" rx="3" class="bar" style="transform: scaleX(0.79); animation: shrink0 1s cubic-bezier(.2,.7,.2,1) 0.8s both"/>
     <g class="note" style="animation-delay:1.8s"><g transform="translate(52 59)"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="okstroke"/></g><text x="72" y="70" class="notetext">元の JPEG にバイト単位で戻せることを確認</text></g>
     <rect x="0" y="95" width="464" height="1" class="rule"/>
     </g>
@@ -66,10 +66,10 @@
     <g transform="translate(16 14)"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke-width="1.4" class="stroke"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" class="mutedfill"/></g>
     <text x="52" y="30" class="name out" style="animation-delay:3.1s">夕景_4K.png</text>
     <text x="52" y="30" class="name in" style="animation-delay:3.1s">夕景_4K.jxl</text>
-    <text x="448" y="30" class="size out" text-anchor="end" style="animation-delay:3.1s">10.3 MB</text>
-    <text x="448" y="30" class="size in" text-anchor="end" style="animation-delay:3.1s">5.76 MB<tspan class="muted" dx="6">−44%</tspan></text>
+    <text x="448" y="30" class="size out" text-anchor="end" style="animation-delay:3.1s">10.6 MB</text>
+    <text x="448" y="30" class="size in" text-anchor="end" style="animation-delay:3.1s">6.2 MB<tspan class="muted" dx="6">−41%</tspan></text>
     <rect x="52" y="42" width="396" height="6" rx="3" class="track"/>
-    <rect x="52" y="42" width="396" height="6" rx="3" class="bar" style="transform: scaleX(0.56); animation: shrink1 1s cubic-bezier(.2,.7,.2,1) 2.1s both"/>
+    <rect x="52" y="42" width="396" height="6" rx="3" class="bar" style="transform: scaleX(0.59); animation: shrink1 1s cubic-bezier(.2,.7,.2,1) 2.1s both"/>
     <g class="note" style="animation-delay:3.1s"><g transform="translate(52 59)"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="okstroke"/></g><text x="72" y="70" class="notetext">すべての画素が元と一致することを確認</text></g>
     <rect x="0" y="95" width="464" height="1" class="rule"/>
     </g>
@@ -88,5 +88,5 @@
     <text x="448" y="379" class="status st-idle" text-anchor="end">待機中、CPU 使用率 0%</text>
   </g>
 </g>
-<text x="592" y="460" class="caption">JPEG と PNG のサイズは 4K 写真での実測値 (圧縮の強さ 7)</text>
+<text x="592" y="460" class="caption">JPEG と PNG のサイズは、下の表の写真で測った実測値</text>
 </svg>

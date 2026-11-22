@@ -1,6 +1,7 @@
 //! Builds the JPEG XL reference library (libjxl, BSD-3-Clause) from the pinned git submodule
 //! and links it statically. Only the encoder/decoder/threads libraries are built.
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -107,7 +108,15 @@ fn main() {
     if let Ok(n) = std::thread::available_parallelism() {
         cfg.env("CMAKE_BUILD_PARALLEL_LEVEL", n.get().to_string());
     }
-    let dst = cfg.build();
+    if cfg_msvc() {
+        // The Visual Studio generator builds the files of one project serially unless asked.
+        cfg.cflag("/MP").cxxflag("/MP");
+    }
+    println!("cargo:rerun-if-env-changed=OIF_LIBJXL_CACHE_DIR");
+    let dst = match env::var_os("OIF_LIBJXL_CACHE_DIR") {
+        Some(dir) => cached_build(Path::new(&dir), &mut cfg),
+        None => cfg.build(),
+    };
 
     // Find each static library wherever CMake put it (install dir or build tree).
     let wanted = ["jxl", "jxl_threads", "jxl_cms", "hwy", "brotlienc", "brotlidec", "brotlicommon"];
@@ -137,6 +146,49 @@ fn main() {
         Ok("linux") => println!("cargo:rustc-link-lib=stdc++"),
         _ => {} // MSVC links its C++ runtime automatically
     }
+}
+
+/// Builds libjxl once per target and configuration into a shared directory instead of every
+/// cargo profile's OUT_DIR (`check`, `clippy`, `test` and `--release` would each rebuild it).
+/// The flags the cmake crate passes do not depend on the cargo profile, and the CMake build
+/// type is fixed to Release, so the result is the same for all of them.
+fn cached_build(root: &Path, cfg: &mut cmake::Config) -> PathBuf {
+    let target = env::var("TARGET").expect("TARGET");
+    let name = format!("{target}-{:016x}", cache_key(&target));
+    let dir = root.join(&name);
+    fs::create_dir_all(&dir).expect("create the libjxl cache directory");
+    // Concurrent cargo invocations (e.g. clippy and test) wait for each other here.
+    let lock = File::create(root.join(format!("{name}.lock"))).expect("create the libjxl cache lock");
+    lock.lock().expect("lock the libjxl cache");
+    let stamp = dir.join("complete");
+    if !stamp.exists() {
+        cfg.out_dir(&dir);
+        cfg.build();
+        fs::write(&stamp, name.as_bytes()).expect("write the libjxl cache stamp");
+    }
+    dir
+}
+
+/// Everything that changes the libjxl build: this script (options), the library versions, the
+/// target and the compiler environment.
+fn cache_key(target: &str) -> u64 {
+    let mut data = Vec::new();
+    data.extend(fs::read("build.rs").unwrap_or_default());
+    for file in [
+        "lib/CMakeLists.txt",
+        "third_party/highway/CMakeLists.txt",
+        "third_party/brotli/CMakeLists.txt",
+        "third_party/skcms/skcms.cc",
+    ] {
+        data.extend(fs::read(Path::new(SUBMODULE).join(file)).unwrap_or_default());
+    }
+    data.extend(target.as_bytes());
+    for var in ["HOST", "CC", "CXX", "CFLAGS", "CXXFLAGS", "MACOSX_DEPLOYMENT_TARGET", "CMAKE_GENERATOR"] {
+        data.extend(var.as_bytes());
+        data.extend(env::var(var).unwrap_or_default().bytes());
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+    data.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 fn cfg_msvc() -> bool {

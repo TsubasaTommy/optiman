@@ -125,9 +125,11 @@ pub fn start() -> Result<()> {
     Ok(())
 }
 
-/// Asks the running agent to exit through its control pipe.
+/// Asks the registered agent to exit through its control pipe.
 pub fn stop() -> Result<()> {
-    super::events::request_stop();
+    if let Some((_, config)) = registered_command().as_deref().and_then(parse_command_line) {
+        super::events::request_stop(&config);
+    }
     Ok(())
 }
 

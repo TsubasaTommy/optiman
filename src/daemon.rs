@@ -127,7 +127,7 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
 
     platform::power::enter_resident_mode();
     let (mut ev, notifier) = EventLoop::new()?;
-    ev.listen_control()?;
+    ev.listen_control(config_path)?;
     if opts.exit_when_idle.is_some() {
         ev.listen_launch_events();
     }

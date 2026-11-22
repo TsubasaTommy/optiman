@@ -12,6 +12,7 @@ env:
   RUST_TOOLCHAIN: "1.100.0"
   INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe
   INNO_SHA256: 8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0
+  OIF_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
 
 jobs:
   macos:
@@ -23,17 +24,25 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Fetch libjxl sources
-        run: scripts/fetch-libjxl.sh
+        id: libjxl
+        run: |
+          scripts/fetch-libjxl.sh
+          echo "sha=$(git rev-parse HEAD:third_party/libjxl)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the libjxl build
+        uses: actions/cache@v6
+        with:
+          path: .libjxl-cache
+          key: libjxl-release-macos-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
 
       - name: Install Rust
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
+      # One cargo invocation builds both architectures in parallel.
       - name: Build
-        run: |
-          cargo build --release --locked --target aarch64-apple-darwin --bin optimize-image-folder
-          cargo build --release --locked --target x86_64-apple-darwin --bin optimize-image-folder
+        run: cargo build --release --locked --target aarch64-apple-darwin --target x86_64-apple-darwin --bin optimize-image-folder
 
       - name: Universal binary
         run: |
@@ -100,8 +109,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Fetch libjxl sources
+        id: libjxl
         shell: bash
-        run: scripts/fetch-libjxl.sh
+        run: |
+          scripts/fetch-libjxl.sh
+          echo "sha=$(git rev-parse HEAD:third_party/libjxl)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the libjxl build
+        uses: actions/cache@v6
+        with:
+          path: .libjxl-cache
+          key: libjxl-release-${{ matrix.target }}-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
 
       - name: Install Rust
         shell: bash

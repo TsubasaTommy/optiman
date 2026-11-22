@@ -5,3 +5,9 @@ global-min-publish-age = "7 days"
 
 [resolver]
 incompatible-publish-age = "deny"
+
+# Build libjxl (C++) once per target into target/libjxl and share it between `check`, `clippy`,
+# `test` and `--release`, instead of rebuilding it in every profile's OUT_DIR (see build.rs).
+# An existing environment variable (CI) takes precedence.
+[env]
+OIF_LIBJXL_CACHE_DIR = { value = "target/libjxl", relative = true }

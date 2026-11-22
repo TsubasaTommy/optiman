@@ -48,7 +48,7 @@ impl EventLoop {
     }
 
     /// launchd stops the agent with SIGTERM; no control channel is needed.
-    pub fn listen_control(&mut self) -> Result<()> {
+    pub fn listen_control(&mut self, _config: &std::path::Path) -> Result<()> {
         Ok(())
     }
 
@@ -82,6 +82,6 @@ pub fn current_event_id() -> Option<u64> {
 }
 
 /// Ask a running agent to stop. On macOS launchd does this (`launchctl bootout`).
-pub fn request_stop() -> bool {
+pub fn request_stop(_config: &std::path::Path) -> bool {
     false
 }

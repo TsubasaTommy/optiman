@@ -16,6 +16,8 @@ use crate::event::Msg;
 
 /// Seconds fseventsd may coalesce events before waking us.
 const LATENCY: f64 = 1.0;
+/// `FSEventStreamSetExclusionPaths` accepts at most 8 paths.
+const MAX_EXCLUSIONS: usize = 8;
 
 struct CallbackCtx {
     tx: Sender<Msg>,
@@ -32,7 +34,8 @@ unsafe impl Send for Watcher {}
 
 impl Watcher {
     /// `since`: replay events after this FSEvents id (catch-up after a restart).
-    pub fn start(roots: &[PathBuf], since: Option<u64>, tx: Sender<Msg>) -> Result<Watcher> {
+    /// `exclude`: subtrees FSEvents must not report at all (up to 8; extra ones are filtered later).
+    pub fn start(roots: &[PathBuf], since: Option<u64>, exclude: &[PathBuf], tx: Sender<Msg>) -> Result<Watcher> {
         if roots.is_empty() {
             bail!("監視するフォルダがありません");
         }
@@ -69,6 +72,20 @@ impl Watcher {
             if stream.is_null() {
                 drop(Box::from_raw(ctx));
                 bail!("FSEventStreamCreate に失敗しました");
+            }
+            // Excluded subtrees (blacklist, Photos libraries) never wake us.
+            let excluded: Vec<Cf> =
+                exclude.iter().take(MAX_EXCLUSIONS).map(|p| cf_string(&p.to_string_lossy())).collect();
+            if !excluded.is_empty() {
+                let ptrs: Vec<*const c_void> = excluded.iter().map(|p| p.ptr()).collect();
+                if let Some(arr) = Cf::from_create(CFArrayCreate(
+                    kCFAllocatorDefault,
+                    ptrs.as_ptr(),
+                    ptrs.len() as CFIndex,
+                    &kCFTypeArrayCallBacks,
+                )) {
+                    FSEventStreamSetExclusionPaths(stream, arr.ptr());
+                }
             }
             let queue = dispatch_queue_create(
                 c"io.github.tsubasatommy.optimize-image-folder.fsevents".as_ptr(),

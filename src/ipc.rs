@@ -126,21 +126,21 @@ mod tests {
         let fp = Some(Fingerprint { size: 42, mtime_ns: -7 });
         let cases = vec![
             Outcome::Converted {
-                output: PathBuf::from("/a\tb/c.avif"),
+                output: PathBuf::from("/a\tb/c.jxl"),
                 before: 100,
                 after: 40,
                 original: OriginalPolicy::Trash,
                 note: Some("x\ny".into()),
             },
             Outcome::Converted {
-                output: PathBuf::from("c.avif"),
+                output: PathBuf::from("c.jxl"),
                 before: 1,
                 after: 0,
                 original: OriginalPolicy::Delete,
                 note: None,
             },
-            Outcome::WouldConvert(PathBuf::from("w.avif")),
-            Outcome::AlreadyDone(PathBuf::from("d.avif")),
+            Outcome::WouldConvert(PathBuf::from("w.jxl")),
+            Outcome::AlreadyDone(PathBuf::from("d.jxl")),
             Outcome::Skipped { reason: "big".into(), remember: fp },
             Outcome::Skipped { reason: "".into(), remember: None },
             Outcome::Ignored,

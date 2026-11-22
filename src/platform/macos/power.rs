@@ -9,6 +9,10 @@ pub fn enter_background_thread() {
     }
 }
 
+/// The resident agent: launchd already runs it with `ProcessType = Background` (throttled CPU and
+/// I/O, efficiency cores), and it exits when idle, so nothing more is needed.
+pub fn enter_resident_mode() {}
+
 pub fn trim_memory() {
     unsafe {
         malloc_zone_pressure_relief(std::ptr::null_mut(), 0);

@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: TsubasaTommy.OptimizeImageFolder
+PackageVersion: @VERSION@
+InstallerType: inno
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+ProductCode: '{60ADCF2D-2A75-4CF1-86E1-73921ECB571E}_is1'
+ReleaseDate: @DATE@
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/TsubasaTommy/optimize-image-folder/releases/download/v@VERSION@/OptimizeImageFolder-Setup.exe
+  InstallerSha256: @SHA256_SETUP@
+- Architecture: arm64
+  InstallerUrl: https://github.com/TsubasaTommy/optimize-image-folder/releases/download/v@VERSION@/OptimizeImageFolder-Setup.exe
+  InstallerSha256: @SHA256_SETUP@
+ManifestType: installer
+ManifestVersion: 1.12.0

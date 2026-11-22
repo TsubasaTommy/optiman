@@ -1,11 +1,14 @@
-//! The resident loop.
+//! The agent loop, shared by both platforms.
 //!
-//! One thread blocks in `Receiver::recv()` (no timeout) whenever nothing is settling or encoding,
-//! so the idle process uses no CPU. A timeout is used only while files are waiting to settle.
+//! The only waiting happens in `EventLoop::wait`, a kernel wait (channel/IOCP) without a timeout
+//! whenever nothing is settling or encoding. A timeout is used only while files settle.
+//!
+//! - macOS: launchd starts the agent on demand (`Options::exit_when_idle`), so between bursts of
+//!   activity no process exists at all.
+//! - Windows: the agent stays resident with a single thread blocked in the IOCP.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -13,9 +16,9 @@ use anyhow::{Result, bail};
 
 use crate::config::Config;
 use crate::convert::{ConvertCtx, Fingerprint, Outcome};
-use crate::encode;
 use crate::event::Msg;
 use crate::filter::Filter;
+use crate::platform::events::{self, EventLoop, Wait};
 use crate::platform::{self, fsutil};
 use crate::scheduler::{Obs, Pool, Probe, Scheduler, WorkerSpec};
 use crate::state::{State, now_unix};
@@ -24,6 +27,12 @@ use crate::{error, info, warn};
 
 /// Slack applied to the catch-up timestamp threshold (clock granularity, slow copies).
 const CATCHUP_MARGIN: Duration = Duration::from_secs(300);
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Options {
+    /// Exit after being idle this long (macOS on-demand runs started by launchd).
+    pub exit_when_idle: Option<Duration>,
+}
 
 pub fn state_path_for(config_path: &Path) -> PathBuf {
     config_path.with_file_name("state.toml")
@@ -44,6 +53,23 @@ pub fn resolve_roots(cfg: &Config) -> Vec<PathBuf> {
         }
     }
     roots
+}
+
+/// Subtrees the OS watcher should not report: excluded folders and library bundles directly
+/// inside a root (e.g. `~/Pictures/Photos Library.photoslibrary`, which Photos writes constantly).
+fn watcher_exclusions(roots: &[PathBuf], filter: &Filter) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> =
+        filter.excluded_dirs().iter().filter(|d| roots.iter().any(|r| d.starts_with(r))).cloned().collect();
+    for root in roots {
+        let Ok(entries) = fs::read_dir(root) else { continue };
+        for e in entries.flatten() {
+            let name = e.file_name();
+            if e.file_type().is_ok_and(|t| t.is_dir()) && filter.is_excluded_name(&name.to_string_lossy()) {
+                out.push(e.path());
+            }
+        }
+    }
+    out
 }
 
 fn observe(path: &Path) -> Option<Obs> {
@@ -70,34 +96,45 @@ struct Daemon {
     /// Files that arrived before this are "existing" (ignored by rescans unless scan_existing).
     catchup_since: SystemTime,
     latest_event_id: Option<u64>,
+    history_done: bool,
     busy_since_idle: bool,
     converted_since_idle: usize,
+    opts: Options,
 }
 
-pub fn run(cfg: Config, config_path: &Path) -> Result<()> {
+pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     let state_path = state_path_for(config_path);
     let state = State::load(&state_path);
     let roots = resolve_roots(&cfg);
     if roots.is_empty() {
-        bail!("監視できるフォルダがありません。設定ファイルの folders を確認してください: {}", config_path.display());
+        bail!(
+            "監視できるフォルダがありません。設定の「変換するフォルダ」を確認してください: {}",
+            config_path.display()
+        );
     }
-    let encoder = encode::resolve(cfg.encoder);
+    let filter = Filter::new(&cfg);
     info!(
-        "起動 v{} / 監視: {} / エンコーダ: {encoder} / 品質: {} / 元ファイル: {} / 既存ファイル: {}",
+        "起動 v{} (libjxl {}) / 監視: {} / 除外: {} / 圧縮の強さ: {} / 元ファイル: {} / 既存ファイル: {}{}",
         crate::VERSION,
+        crate::jxl::libjxl_version(),
         roots.iter().map(|r| r.display().to_string()).collect::<Vec<_>>().join(", "),
-        cfg.quality,
+        filter.excluded_dirs().len(),
+        cfg.effort,
         cfg.original.describe(),
-        if cfg.scan_existing { "変換する" } else { "新規のみ" }
+        if cfg.scan_existing { "変換する" } else { "新規のみ" },
+        if opts.exit_when_idle.is_some() { " / オンデマンド起動" } else { "" },
     );
 
-    let (tx, rx) = mpsc::channel();
-    let _stop = platform::instance::listen_stop(tx.clone())?;
-
+    platform::power::enter_resident_mode();
+    let (mut ev, notifier) = EventLoop::new()?;
+    ev.listen_control()?;
+    if opts.exit_when_idle.is_some() {
+        ev.listen_launch_events();
+    }
     // Replay FSEvents history (macOS) instead of rescanning when only new files matter.
     let since = if cfg.scan_existing { None } else { state.last_event_id };
-    let watcher = platform::watch::Watcher::start(&roots, since, tx.clone())?;
-    let latest_event_id = since.or_else(platform::watch::current_event_id);
+    ev.watch(&roots, since, &watcher_exclusions(&roots, &filter))?;
+    let latest_event_id = since.or_else(events::current_event_id);
 
     let catchup_since = state
         .last_idle_unix
@@ -108,33 +145,34 @@ pub fn run(cfg: Config, config_path: &Path) -> Result<()> {
     let had_previous_run = state.last_idle_unix.is_some();
 
     let state = Arc::new(Mutex::new(state));
-    let ctx = ConvertCtx::new(&cfg, encoder);
+    let ctx = ConvertCtx::new(&cfg);
     let spec = WorkerSpec::for_ctx(&ctx);
     let mut d = Daemon {
-        filter: Filter::new(&cfg),
+        filter,
         sched: Scheduler::new(Duration::from_secs(cfg.settle_seconds)),
-        pool: Pool::new(cfg.effective_jobs(), Arc::new(ctx), spec, tx.clone()),
+        pool: Pool::new(cfg.effective_jobs(), Arc::new(ctx), spec, notifier),
         roots,
         state,
         state_path,
         scan_existing: cfg.scan_existing,
         catchup_since,
         latest_event_id,
+        history_done: since.is_none(),
         busy_since_idle: true,
         converted_since_idle: 0,
+        opts,
     };
-    drop(tx);
 
     // Startup catch-up. With FSEvents history available nothing needs scanning.
-    if d.scan_existing || (since.is_none() && had_previous_run) {
+    if d.scan_existing || (since.is_none() && (had_previous_run || opts.exit_when_idle.is_some())) {
         for root in d.roots.clone() {
             d.rescan(&root);
         }
     }
 
-    d.event_loop(&rx);
-    drop(watcher);
-    d.shutdown(&rx);
+    d.event_loop(&mut ev);
+    ev.stop_watching();
+    d.shutdown(&mut ev);
     Ok(())
 }
 
@@ -164,6 +202,7 @@ impl Daemon {
         }
     }
 
+    /// Returns false when the loop should stop.
     fn handle(&mut self, msg: Msg) -> bool {
         match msg {
             Msg::Changed(path) => {
@@ -186,7 +225,8 @@ impl Daemon {
                 self.busy_since_idle = true;
                 self.latest_event_id = Some(self.latest_event_id.map_or(id, |cur| cur.max(id)));
             }
-            Msg::HistoryDone => {}
+            Msg::HistoryDone => self.history_done = true,
+            Msg::Wake => self.busy_since_idle = true,
             Msg::JobFinished(path, outcome) => {
                 self.sched.finished(&path);
                 if let Some(line) = outcome.describe(&path) {
@@ -209,38 +249,56 @@ impl Daemon {
                 }
             }
             Msg::WorkerExited => {}
-            Msg::Stop => return false,
+            Msg::Stop => {
+                info!("停止要求を受け取りました");
+                return false;
+            }
         }
         true
     }
 
-    fn event_loop(&mut self, rx: &Receiver<Msg>) {
+    fn is_idle(&self) -> bool {
+        self.sched.is_idle() && self.pool.is_idle()
+    }
+
+    fn event_loop(&mut self, ev: &mut EventLoop) {
+        let mut idle_since: Option<Instant> = None;
         loop {
-            if self.busy_since_idle && self.sched.is_idle() && self.pool.is_idle() {
-                self.on_idle();
-            }
-            let msg = match self.sched.next_deadline() {
-                // Nothing settling: block until the OS reports something. This is the idle state.
-                None => match rx.recv() {
-                    Ok(m) => Some(m),
-                    Err(_) => return,
-                },
-                Some(deadline) => match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(m) => Some(m),
-                    Err(RecvTimeoutError::Timeout) => None,
-                    Err(RecvTimeoutError::Disconnected) => return,
-                },
-            };
-            if let Some(msg) = msg {
-                if !self.handle(msg) {
-                    info!("停止要求を受け取りました");
-                    return;
+            if self.is_idle() {
+                if self.busy_since_idle {
+                    self.on_idle();
                 }
-                // Drain whatever else is queued before doing filesystem work.
-                while let Ok(m) = rx.try_recv() {
-                    if !self.handle(m) {
-                        info!("停止要求を受け取りました");
+                idle_since.get_or_insert_with(Instant::now);
+            } else {
+                idle_since = None;
+            }
+            // On-demand runs end once idle long enough (and FSEvents history has been replayed).
+            let exit_at = match (self.opts.exit_when_idle, idle_since) {
+                (Some(grace), Some(since)) if self.history_done => Some(since + grace),
+                _ => None,
+            };
+            if exit_at.is_some_and(|t| t <= Instant::now()) {
+                info!("待機状態になったため終了します (次の変更で launchd が起動します)");
+                return;
+            }
+            let deadline = [self.sched.next_deadline(), exit_at].into_iter().flatten().min();
+            // No deadline: block until the OS reports something. This is the idle state.
+            let wait = ev.wait(deadline.map(|d| d.saturating_duration_since(Instant::now())));
+            match wait {
+                Wait::Closed => return,
+                Wait::Timeout => {}
+                Wait::Msg(msg) => {
+                    if !matches!(msg, Msg::HistoryDone | Msg::WorkerExited) {
+                        idle_since = None;
+                    }
+                    if !self.handle(msg) {
                         return;
+                    }
+                    // Drain whatever else is queued before doing filesystem work.
+                    while let Some(m) = ev.try_next() {
+                        if !self.handle(m) {
+                            return;
+                        }
                     }
                 }
             }
@@ -259,11 +317,10 @@ impl Daemon {
 
     fn on_idle(&mut self) {
         self.busy_since_idle = false;
-        let now = now_unix();
         self.catchup_since = SystemTime::now().checked_sub(CATCHUP_MARGIN).unwrap_or(UNIX_EPOCH);
         {
             let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            st.last_idle_unix = Some(now);
+            st.last_idle_unix = Some(now_unix());
             if self.latest_event_id.is_some() {
                 st.last_event_id = self.latest_event_id;
             }
@@ -279,20 +336,20 @@ impl Daemon {
         platform::power::trim_memory();
     }
 
-    fn shutdown(&mut self, rx: &Receiver<Msg>) {
+    fn shutdown(&mut self, ev: &mut EventLoop) {
         let dropped = self.pool.stop();
         if !dropped.is_empty() {
             info!("未処理の {} 件は次回起動時に処理します", dropped.len());
         }
         while self.pool.active() > 0 {
-            match rx.recv_timeout(Duration::from_secs(600)) {
-                Ok(Msg::JobFinished(path, outcome)) => {
+            match ev.wait(Some(Duration::from_secs(600))) {
+                Wait::Msg(Msg::JobFinished(path, outcome)) => {
                     if let Some(line) = outcome.describe(&path) {
                         info!("{line}");
                     }
                 }
-                Ok(_) => {}
-                Err(_) => break,
+                Wait::Msg(_) => {}
+                Wait::Timeout | Wait::Closed => break,
             }
         }
         let st = self.state.lock().unwrap_or_else(|e| e.into_inner());

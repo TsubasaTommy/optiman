@@ -9,15 +9,14 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::OriginalPolicy;
 use crate::convert::{ConvertCtx, Fingerprint, Outcome, convert_file};
-use crate::encode::EncoderKind;
 use crate::event::Msg;
+use crate::platform::events::Notifier;
 use crate::{ipc, platform};
 
 /// What we observed about a file the last time we looked.
@@ -141,16 +140,11 @@ impl WorkerSpec {
             OriginalPolicy::Trash => "trash",
             OriginalPolicy::Keep => "keep",
         };
-        let encoder = match ctx.encoder {
-            EncoderKind::Native => "native",
-            EncoderKind::Rav1e => "rav1e",
-        };
         let args = [
             "worker".to_string(),
-            format!("--quality={}", ctx.quality),
-            format!("--speed={}", ctx.speed),
+            format!("--effort={}", ctx.effort),
+            format!("--threads={}", ctx.threads),
             format!("--original={policy}"),
-            format!("--encoder={encoder}"),
             format!("--skip-if-larger={}", ctx.skip_if_larger),
         ];
         Some(WorkerSpec { exe, args: args.into_iter().map(OsString::from).collect() })
@@ -211,11 +205,11 @@ pub struct Pool {
     max: usize,
     ctx: Arc<ConvertCtx>,
     spec: Option<WorkerSpec>,
-    tx: Sender<Msg>,
+    tx: Notifier,
 }
 
 impl Pool {
-    pub fn new(max: usize, ctx: Arc<ConvertCtx>, spec: Option<WorkerSpec>, tx: Sender<Msg>) -> Pool {
+    pub fn new(max: usize, ctx: Arc<ConvertCtx>, spec: Option<WorkerSpec>, tx: Notifier) -> Pool {
         Pool {
             shared: Arc::new(Mutex::new(PoolShared { queue: VecDeque::new(), active: 0, stopping: false })),
             max: max.max(1),
@@ -279,7 +273,7 @@ fn convert_in_process(ctx: &ConvertCtx, path: &Path) -> Outcome {
     })
 }
 
-fn pool_thread(shared: &Mutex<PoolShared>, ctx: &ConvertCtx, spec: Option<&WorkerSpec>, tx: &Sender<Msg>) {
+fn pool_thread(shared: &Mutex<PoolShared>, ctx: &ConvertCtx, spec: Option<&WorkerSpec>, tx: &Notifier) {
     let mut worker: Option<WorkerProc> = None;
     loop {
         let job = {

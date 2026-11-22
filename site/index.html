@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>optimize-image-folder</title>
-<meta name="description" content="写真フォルダを監視して、追加された写真を AV1 (AVIF) に自動変換する macOS / Windows 用の常駐ツール。待機中の CPU 使用率は 0%。">
+<meta name="description" content="写真フォルダを監視して、追加された写真を画質の劣化なしで JPEG XL に変換する macOS / Windows 用ツール。待機中はリソースを使いません。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M7 22l6-7 4 5 3-3 5 5z' fill='white'/%3E%3Ccircle cx='21' cy='11' r='3' fill='white'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -113,6 +113,8 @@
   tr:last-child td { border-bottom: none; }
   ol, ul { padding-left: 1.4em; margin: 0 0 12px; }
   li { margin: 2px 0; }
+  .note { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 16px 0; }
+  .note strong { font-weight: 700; }
   footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; }
 </style>
 </head>
@@ -122,14 +124,134 @@
     <div class="badges">
       <span class="badge">最新版 <strong id="version">—</strong></span>
       <span class="badge">macOS 11+ / Windows 10+</span>
+      <span class="badge">画質の劣化なし</span>
       <span class="badge">MIT License</span>
     </div>
     <h1>optimize-image-folder</h1>
-    <p class="lead">写真フォルダを見張って、新しく入った写真を AV1 (AVIF) に自動で変換する常駐ツール。何もしていない間は CPU を一切使いません。</p>
+    <p class="lead">写真フォルダを見張って、追加された写真を<strong>画質の劣化なしで JPEG XL に変換</strong>するツール。JPEG は元の JPEG にバイト単位で戻せる形で約 20% 小さく、PNG は完全ロスレスで 30〜45% 小さくなります。何もしていない間はリソースを使いません。</p>
   </header>
 
-  <section id="download">
-    <h2>ダウンロード</h2>
+  <section id="install">
+    <h2>インストール</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-panel="p-mac">macOS</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="p-win">Windows</button>
+    </div>
+    <div class="panel" id="p-mac">
+      <h3>Homebrew (おすすめ)</h3>
+      <div class="cmd"><pre><code>brew install tsubasatommy/tap/optimize-image-folder
+optimize-image-folder install</code></pre></div>
+      <p><code>install</code> で、変換するフォルダ (既定は <code>~/Pictures</code>。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は <code>optimize-image-folder settings</code> か <code>~/Applications/Optimize Image Folder.app</code> で開けます。</p>
+      <h3>Homebrew を使わない場合</h3>
+      <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh</code></pre></div>
+      <p class="small">最新リリースをダウンロードし、SHA256 を確認してから <code>~/.local/bin</code> に置きます。macOS 14 以降なら、変換した JPEG XL を Finder・プレビュー・写真でそのまま表示できます。</p>
+    </div>
+    <div class="panel" id="p-win" hidden>
+      <h3>winget (おすすめ)</h3>
+      <div class="cmd"><pre><code>winget install TsubasaTommy.OptimizeImageFolder</code></pre></div>
+      <h3>インストーラーを直接ダウンロードする場合</h3>
+      <div class="downloads">
+        <a class="dl recommended" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe">
+          <span class="os">Windows</span>
+          <span class="arch">x64 / ARM64 共通・管理者権限不要</span>
+          <span class="file">⬇ Setup.exe</span>
+        </a>
+      </div>
+      <p>インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optimize Image Folder」から開けます。</p>
+      <h3>PowerShell から入れる場合</h3>
+      <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex</code></pre></div>
+      <p class="small">最新の Setup.exe をダウンロードし、SHA256 を確認してから起動します。</p>
+      <p class="small">インストーラーにはコード署名をしていません (証明書は有料のため)。winget で入れると SmartScreen の警告は出ません。ブラウザでダウンロードした Setup.exe では警告が出ることがあるので、<a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> でハッシュを確かめてから「詳細情報」→「実行」を選んでください。</p>
+    </div>
+  </section>
+
+  <section id="viewer">
+    <h2>JPEG XL を表示するには</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>OS</th><th>表示方法</th></tr>
+        <tr><td>macOS 14 以降</td><td>標準で表示できます (Finder、プレビュー、写真)。</td></tr>
+        <tr><td>Windows 11 24H2 以降</td><td>Microsoft 公式の無料拡張「<a href="https://apps.microsoft.com/detail/9MZPRTH5C0TB">JPEG XL Image Extension</a>」で、エクスプローラーやフォトで表示できます。<strong>インストーラーがこの拡張も一緒にインストールします</strong> (チェックを外せば入れません)。あとから入れる場合は、設定画面の「拡張機能をインストール」を押すか、次を実行します。<div class="cmd"><pre><code>winget install --id 9MZPRTH5C0TB --source msstore</code></pre></div></td></tr>
+        <tr><td>それ以前の OS</td><td>変換は行われますが、標準のアプリでは表示できません。<code>restore</code> でいつでも元に戻せます。</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="spec">
+    <h2>変換の仕様</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>元の形式</th><th>変換方法</th><th>元ファイルを消す前の検証</th></tr>
+        <tr><td>JPEG</td><td>JPEG のロスレス再圧縮 (EXIF・XMP・ICC も保持)</td><td>JPEG XL から復元した JPEG が元ファイルと<strong>バイト単位で一致</strong>すること</td></tr>
+        <tr><td>PNG / TIFF / BMP / ロスレス WebP</td><td>完全ロスレス。色空間・16 bit・透過・向き・EXIF / XMP を保持</td><td>デコードした画素が元と<strong>完全に一致</strong>すること</td></tr>
+        <tr><td>HEIC / 非可逆 WebP / RAW など</td><td colspan="2">変換しません (劣化なしで変換できないため、元のまま残します)</td></tr>
+      </table>
+    </div>
+    <div class="warn">
+      <strong>元の写真は既定で削除されます。</strong>
+      上の検証に成功し、元ファイルが変換中に変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも <code>optimize-image-folder restore &lt;ファイルまたはフォルダ&gt;</code> で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。
+    </div>
+    <h3>4K 写真での実測値 (Apple Silicon)</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>元のファイル</th><th>JPEG XL</th><th>時間</th></tr>
+        <tr><td>JPEG 2.29 MB</td><td>1.85 MB (-19%)</td><td>1.9 秒</td></tr>
+        <tr><td>PNG 10.3 MB (圧縮の強さ 3)</td><td>6.87 MB (-33%)</td><td>6.6 秒</td></tr>
+        <tr><td>PNG 10.3 MB (圧縮の強さ 7、既定)</td><td>5.76 MB (-44%)</td><td>28 秒</td></tr>
+      </table>
+    </div>
+    <p class="small">変換は低優先度の子プロセスで行うので、時間がかかっても作業の邪魔になりません。「圧縮の強さ」で変わるのはサイズと時間だけで、画質は常に元と同じです。</p>
+  </section>
+
+  <section id="features">
+    <h2>特徴</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>待機中はリソースを使わない</h3>
+        <p>macOS では、フォルダが変わったときだけ launchd がプロセスを起動し、終われば終了します。Windows では、1 本のスレッドが I/O 完了ポートで眠るだけです。</p>
+      </div>
+      <div class="feature">
+        <h3>設定画面</h3>
+        <p>圧縮の強さ、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</p>
+      </div>
+      <div class="feature">
+        <h3>OS のネイティブ API</h3>
+        <p>Rust から FSEvents・launchd・ImageIO・AppKit (macOS)、ReadDirectoryChangesW・IOCP・WIC・Win32 (Windows) を直接呼び出します。</p>
+      </div>
+      <div class="feature">
+        <h3>変換は使い捨てプロセスで</h3>
+        <p>必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。メモリはすべて OS に返されます。</p>
+      </div>
+      <div class="feature">
+        <h3>安全な置き換え</h3>
+        <p>検証 → 一時ファイルに書いて fsync → rename → 元ファイルが変わっていないか確認、の順に進め、日時や Finder タグも引き継ぎます。</p>
+      </div>
+      <div class="feature">
+        <h3>公式の JPEG XL 実装</h3>
+        <p>エンコードは libjxl 0.13、検証は jxl-rs (どちらも libjxl プロジェクト、BSD-3-Clause) を使います。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="usage">
+    <h2>使い方</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>コマンド</th><th>内容</th></tr>
+        <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--yes</code>)</td></tr>
+        <tr><td><code>settings</code></td><td>設定画面を開きます</td></tr>
+        <tr><td><code>status</code></td><td>状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
+        <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
+        <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
+        <tr><td><code>start</code> / <code>stop</code> / <code>restart</code></td><td>監視の開始・停止・再起動</td></tr>
+        <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
+      </table>
+    </div>
+    <p class="small">Windows ではインストーラーがコマンドを PATH に追加します (<code>%LOCALAPPDATA%\Programs\OptimizeImageFolder</code>)。新しいターミナルから使えます。</p>
+  </section>
+
+  <section id="other">
+    <h2>そのほかのダウンロード</h2>
     <div class="downloads">
       <a class="dl" data-os="mac" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-macos-universal.tar.gz">
         <span class="os">macOS</span>
@@ -137,12 +259,12 @@
         <span class="file">⬇ .tar.gz</span>
       </a>
       <a class="dl" data-os="win-x64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-x64.zip">
-        <span class="os">Windows</span>
+        <span class="os">Windows (ポータブル)</span>
         <span class="arch">x64 (Intel / AMD)</span>
         <span class="file">⬇ .zip</span>
       </a>
       <a class="dl" data-os="win-arm64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-arm64.zip">
-        <span class="os">Windows</span>
+        <span class="os">Windows (ポータブル)</span>
         <span class="arch">ARM64 (Snapdragon など)</span>
         <span class="file">⬇ .zip</span>
       </a>
@@ -153,110 +275,20 @@
       <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases">すべてのバージョン</a> ·
       <a href="https://github.com/TsubasaTommy/optimize-image-folder">ソースコード</a>
     </p>
-
-    <div class="warn">
-      <strong>元の写真は既定で完全に削除されます。</strong>
-      変換した AVIF を検証し (OS に AVIF デコーダがあれば実際に読み戻して)、元ファイルが変換中に変わっていないことを確かめてから削除します。それでも心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。RAW 形式は変換しません。
-    </div>
-  </section>
-
-  <section id="install">
-    <h2>インストール</h2>
-    <p>ターミナルに 1 行貼り付けるだけでインストールできます。監視するフォルダ、元ファイルの扱い、既存の写真も変換するかを聞かれます。</p>
-    <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true" data-panel="p-mac">macOS</button>
-      <button class="tab" role="tab" aria-selected="false" data-panel="p-win">Windows</button>
-    </div>
-    <div class="panel" id="p-mac">
-      <h3>ワンライナー (ターミナル)</h3>
-      <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh</code></pre></div>
-      <h3>手動でインストールする場合</h3>
-      <ol>
-        <li>上の macOS 版をダウンロードして展開します。</li>
-        <li>ブラウザで落としたファイルは Gatekeeper に止められるので、隔離属性を外します。
-          <div class="cmd"><pre><code>xattr -d com.apple.quarantine ./optimize-image-folder</code></pre></div></li>
-        <li>好きな場所 (例: <code>~/.local/bin</code>) に置いて、セットアップを実行します。
-          <div class="cmd"><pre><code>./optimize-image-folder install</code></pre></div></li>
-      </ol>
-      <p class="small">自動起動は <code>~/Library/LaunchAgents</code> の LaunchAgent として登録されます。</p>
-    </div>
-    <div class="panel" id="p-win" hidden>
-      <h3>ワンライナー (PowerShell)</h3>
-      <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex</code></pre></div>
-      <h3>手動でインストールする場合</h3>
-      <ol>
-        <li>お使いの CPU に合った Windows 版をダウンロードして展開します。</li>
-        <li>展開したフォルダで PowerShell を開き、セットアップを実行します。
-          <div class="cmd"><pre><code>.\optimize-image-folder.exe install</code></pre></div></li>
-      </ol>
-      <p class="small">自動起動は <code>HKCU\…\Run</code> に登録され、ウィンドウを出さない <code>optimize-image-folder-agent.exe</code> が常駐します。HEIC を変換するには Microsoft Store の「HEIF 画像拡張機能」と「HEVC ビデオ拡張機能」が必要です。</p>
-    </div>
-  </section>
-
-  <section id="features">
-    <h2>特徴</h2>
-    <div class="features">
-      <div class="feature">
-        <h3>待機中は CPU 0%</h3>
-        <p>タイマーもポーリングも使いません。OS からファイル変更の通知が届くまで、カーネルの待機状態で眠っています。常駐プロセスのメモリは約 2 MB です。</p>
-      </div>
-      <div class="feature">
-        <h3>OS のネイティブ API</h3>
-        <p>Rust から FSEvents・ImageIO (macOS)、ReadDirectoryChangesW・IOCP・WIC (Windows) を直接呼び出します。</p>
-      </div>
-      <div class="feature">
-        <h3>変換は使い捨てプロセスで</h3>
-        <p>変換が必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。メモリはすべて OS に返されます。</p>
-      </div>
-      <div class="feature">
-        <h3>写真らしさを保つ</h3>
-        <p>EXIF (撮影日時・GPS など)、回転、Display P3 の色域、透過、ファイルの日時を引き継ぎます。</p>
-      </div>
-      <div class="feature">
-        <h3>安全な置き換え</h3>
-        <p>AVIF を検証 → 一時ファイルに書いて fsync → rename → 元ファイルが変わっていないか確認、の順に進めてから元ファイルを処理します。</p>
-      </div>
-      <div class="feature">
-        <h3>対応形式</h3>
-        <p>JPEG / PNG / HEIC / HEIF / TIFF / BMP / WebP。RAW やアニメーション画像、写真ライブラリ (.photoslibrary) の中身は対象外です。</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="usage">
-    <h2>使い方</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><th>コマンド</th><th>内容</th></tr>
-        <tr><td><code>install</code></td><td>設定を作り、自動起動に登録して常駐を始めます (<code>--folder</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--yes</code>)</td></tr>
-        <tr><td><code>status</code></td><td>常駐の状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
-        <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
-        <tr><td><code>start</code> / <code>stop</code> / <code>restart</code></td><td>常駐の開始・停止・再起動 (設定の変更を反映)</td></tr>
-        <tr><td><code>config</code></td><td>設定ファイルの場所と内容を表示します</td></tr>
-        <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
-      </table>
-    </div>
-    <h3>設定ファイル</h3>
-    <p class="small">macOS: <code>~/Library/Application Support/optimize-image-folder/config.toml</code> / Windows: <code>%APPDATA%\optimize-image-folder\config.toml</code></p>
-    <div class="cmd"><pre><code>folders = ["~/Pictures"]
-original = "delete"      # delete | trash | keep
-scan_existing = false    # 既存の写真も変換するか
-quality = 85             # 1-100
-speed = 6                # 1 (高画質・遅い) - 10 (速い)
-encoder = "auto"         # auto (=rav1e, 高圧縮) | native (OS, 高速) | rav1e
-jobs = 0                 # 同時変換数 (0 = 自動)
-settle_seconds = 2       # 書き込みが止まってから変換するまでの秒数
-skip_if_larger = true    # AVIF の方が大きければ元ファイルを残す</code></pre></div>
   </section>
 
   <section id="uninstall">
     <h2>アンインストール</h2>
-    <div class="cmd"><pre><code>optimize-image-folder uninstall --purge</code></pre></div>
-    <p class="small">そのあと実行ファイルを削除してください (macOS: <code>~/.local/bin/optimize-image-folder</code>、Windows: <code>%LOCALAPPDATA%\Programs\optimize-image-folder</code>)。</p>
+    <p><strong>macOS:</strong></p>
+    <div class="cmd"><pre><code>optimize-image-folder uninstall --purge
+brew uninstall optimize-image-folder</code></pre></div>
+    <p><strong>Windows:</strong> 「設定」→「アプリ」から「Optimize Image Folder」をアンインストールするか、次を実行します。</p>
+    <div class="cmd"><pre><code>winget uninstall TsubasaTommy.OptimizeImageFolder</code></pre></div>
+    <p class="small">変換済みの JPEG XL はそのまま残ります。元に戻したい場合は、アンインストールの前に <code>restore</code> を実行してください。</p>
   </section>
 
   <footer>
-    <span>optimize-image-folder · MIT License</span>
+    <span>optimize-image-folder · MIT License · 同梱ライブラリのライセンスは THIRD_PARTY_LICENSES.txt</span>
     <a href="https://github.com/TsubasaTommy/optimize-image-folder">GitHub</a>
   </footer>
 </main>
@@ -286,17 +318,8 @@ skip_if_larger = true    # AVIF の方が大きければ元ファイルを残す
   }
   tabs.forEach(function (t) { t.addEventListener("click", function () { select(t.dataset.panel); }); });
 
-  // Highlight the download for this visitor's OS
-  var ua = navigator.userAgent;
-  if (/Windows/.test(ua)) {
-    select("p-win");
-    var arm = /ARM64|aarch64/i.test(ua);
-    var el = document.querySelector('.dl[data-os="' + (arm ? "win-arm64" : "win-x64") + '"]');
-    if (el) el.classList.add("recommended");
-  } else if (/Mac OS X|Macintosh/.test(ua)) {
-    var mac = document.querySelector('.dl[data-os="mac"]');
-    if (mac) mac.classList.add("recommended");
-  }
+  // Show the instructions for this visitor's OS
+  if (/Windows/.test(navigator.userAgent)) select("p-win");
 
   // Latest version (optional; links work without it)
   fetch("https://api.github.com/repos/TsubasaTommy/optimize-image-folder/releases/latest")

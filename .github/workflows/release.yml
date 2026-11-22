@@ -9,6 +9,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.100.0"
+  INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe
+  INNO_SHA256: 8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0
 
 jobs:
   macos:
@@ -19,13 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
-          rustup default stable
+      - name: Fetch libjxl sources
+        run: scripts/fetch-libjxl.sh
 
-      - name: Install NASM (x86_64 SIMD)
-        run: brew install nasm
+      - name: Install Rust
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
@@ -41,6 +42,7 @@ jobs:
             target/aarch64-apple-darwin/release/optimize-image-folder \
             target/x86_64-apple-darwin/release/optimize-image-folder
           lipo -info dist/pkg/optimize-image-folder
+          dist/pkg/optimize-image-folder --version
 
       - name: Sign (Developer ID if configured, ad-hoc otherwise)
         env:
@@ -74,7 +76,7 @@ jobs:
 
       - name: Package
         run: |
-          cp README.md LICENSE dist/pkg/
+          cp README.md LICENSE THIRD_PARTY_LICENSES.txt dist/pkg/
           tar -C dist/pkg -czf dist/optimize-image-folder-macos-universal.tar.gz .
 
       - uses: actions/upload-artifact@v7
@@ -90,15 +92,16 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             arch: x64
-            features: ""
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
             arch: arm64
-            # rav1e's NEON assembly is GNU syntax, which MSVC cannot assemble.
-            features: "--no-default-features"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Fetch libjxl sources
+        shell: bash
+        run: scripts/fetch-libjxl.sh
 
       - name: Install Rust
         shell: bash
@@ -109,26 +112,33 @@ jobs:
             export PATH="$HOME/.cargo/bin:$PATH"
             cygpath -w "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
-          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
-          rustup default stable
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target ${{ matrix.target }}
 
-      - name: Install NASM (x86_64 SIMD)
-        if: matrix.arch == 'x64'
-        uses: ilammy/setup-nasm@v1
+      - name: Put CMake on PATH
+        shell: pwsh
+        run: |
+          if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+            $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+            $bin = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+            if (-not (Test-Path (Join-Path $bin "cmake.exe"))) { throw "CMake was not found" }
+            Add-Content $env:GITHUB_PATH $bin
+          }
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} ${{ matrix.features }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
         shell: pwsh
         run: |
           $out = "target/${{ matrix.target }}/release"
-          New-Item -ItemType Directory -Force dist/pkg | Out-Null
-          Copy-Item "$out/optimize-image-folder.exe", "$out/optimize-image-folder-agent.exe", README.md, LICENSE dist/pkg/
+          $bin = "dist/windows-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force $bin, dist/pkg | Out-Null
+          Copy-Item "$out/optimize-image-folder.exe", "$out/optimize-image-folder-agent.exe" $bin
+          Copy-Item "$bin/*", README.md, LICENSE, THIRD_PARTY_LICENSES.txt dist/pkg/
           Compress-Archive -Path dist/pkg/* -DestinationPath "dist/optimize-image-folder-windows-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v7
@@ -136,20 +146,113 @@ jobs:
           name: windows-${{ matrix.arch }}
           path: dist/*.zip
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}-bin
+          path: dist/windows-${{ matrix.arch }}
+
+  installer:
+    name: installer (Inno Setup)
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-x64-bin
+          path: dist/windows-x64
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-arm64-bin
+          path: dist/windows-arm64
+
+      - name: Install Inno Setup (pinned hash and Authenticode signature)
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP "innosetup.exe"
+          Invoke-WebRequest -Uri $env:INNO_URL -OutFile $exe
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:INNO_SHA256) { throw "Inno Setup hash mismatch: $hash" }
+          $sig = Get-AuthenticodeSignature $exe
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
+            throw "Inno Setup signature is not valid: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+          $dir = Join-Path $env:RUNNER_TEMP "InnoSetup"
+          Start-Process -Wait -FilePath $exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER", "/DIR=`"$dir`""
+          if (-not (Test-Path "$dir\ISCC.exe")) { throw "ISCC.exe was not installed" }
+          Add-Content $env:GITHUB_PATH $dir
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          ISCC.exe "/DAppVersion=$version" "/DBinX64=$PWD\dist\windows-x64" "/DBinArm64=$PWD\dist\windows-arm64" "/DOutputDir=$PWD\dist" packaging\windows\OptimizeImageFolder.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-Item dist\OptimizeImageFolder-Setup.exe
+
+      - name: Silent install, run and uninstall
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "setup.log"
+          $p = Start-Process -Wait -PassThru -FilePath dist\OptimizeImageFolder-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"$log`""
+          Get-Content $log -Tail 30
+          if ($p.ExitCode -ne 0) { throw "setup exited with $($p.ExitCode)" }
+          $app = Join-Path $env:LOCALAPPDATA "Programs\OptimizeImageFolder"
+          foreach ($f in "optimize-image-folder.exe", "optimize-image-folder-agent.exe", "THIRD_PARTY_LICENSES.txt") {
+            if (-not (Test-Path (Join-Path $app $f))) { throw "missing $f" }
+          }
+          $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optimize-image-folder" -ErrorAction SilentlyContinue
+          if (-not $run) { throw "autostart entry was not registered" }
+          Start-Sleep -Seconds 3
+          $agent = Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue
+          if (-not $agent) { throw "the agent is not running" }
+          "agent: threads $($agent.Threads.Count), private $([math]::Round($agent.PrivateMemorySize64 / 1MB, 1)) MB"
+          & "$app\optimize-image-folder.exe" status
+
+          $u = Start-Process -Wait -PassThru -FilePath "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          if ($u.ExitCode -ne 0) { throw "uninstall exited with $($u.ExitCode)" }
+          Start-Sleep -Seconds 3
+          if (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optimize-image-folder" -ErrorAction SilentlyContinue) {
+            throw "autostart entry was not removed"
+          }
+          if (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
+          "OK: install, autostart, agent start, uninstall"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer
+          path: dist/OptimizeImageFolder-Setup.exe
+
   publish:
     name: publish release
-    needs: [macos, windows]
+    needs: [macos, windows, installer]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
         with:
+          name: macos
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-x64
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-arm64
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: installer
+          path: dist
 
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+          ls -la
+          sha256sum *.tar.gz *.zip *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create or update the GitHub release

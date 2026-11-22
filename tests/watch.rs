@@ -14,11 +14,16 @@ struct Agent {
 
 impl Agent {
     fn start(home: &Path) -> Agent {
+        Agent::start_with(home, &[])
+    }
+
+    fn start_with(home: &Path, extra: &[&str]) -> Agent {
         let mut child = Command::new(env!("CARGO_BIN_EXE_optimize-image-folder"))
             .env("OIF_HOME", home)
             .args(["--config"])
             .arg(home.join("config.toml"))
             .args(["run", "--log-stderr"])
+            .args(extra)
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
             .spawn()
@@ -68,7 +73,7 @@ fn write_config(home: &Path, photos: &Path, scan_existing: bool) {
     let folder = photos.to_string_lossy().replace('\\', "\\\\");
     fs::write(
         home.join("config.toml"),
-        format!("folders = [\"{folder}\"]\noriginal = \"delete\"\nscan_existing = {scan_existing}\nsettle_seconds = 1\nspeed = 10\n"),
+        format!("folders = [\"{folder}\"]\noriginal = \"delete\"\nscan_existing = {scan_existing}\nsettle_seconds = 1\neffort = 3\n"),
     )
     .unwrap();
 }
@@ -103,16 +108,16 @@ fn converts_files_dropped_into_watched_folder() {
     std::thread::sleep(Duration::from_millis(400));
     fs::write(&target, &data).unwrap();
 
-    let avif = sub.join("IMG_0001.avif");
+    let jxl = sub.join("IMG_0001.jxl");
     assert!(
-        wait_until(Duration::from_secs(60), || avif.exists() && !target.exists()),
-        "new file was not converted (avif exists: {}, original exists: {})",
-        avif.exists(),
+        wait_until(Duration::from_secs(60), || jxl.exists() && !target.exists()),
+        "new file was not converted (jxl exists: {}, original exists: {})",
+        jxl.exists(),
         target.exists()
     );
     agent.wait_for_line("待機します", Duration::from_secs(30));
     assert!(existing.exists(), "existing photos must be left alone when scan_existing = false");
-    assert!(!photos.path().join("existing.avif").exists());
+    assert!(!photos.path().join("existing.jxl").exists());
 }
 
 #[test]
@@ -126,7 +131,31 @@ fn converts_existing_files_when_requested() {
     write_config(home.path(), photos.path(), true);
 
     let _agent = Agent::start(home.path());
-    let avif = photos.path().join("existing.avif");
-    assert!(wait_until(Duration::from_secs(60), || avif.exists() && !existing.exists()), "existing file not converted");
+    let jxl = photos.path().join("existing.jxl");
+    assert!(wait_until(Duration::from_secs(60), || jxl.exists() && !existing.exists()), "existing file not converted");
     assert!(hidden.exists(), "hidden files must be ignored");
+}
+
+/// macOS: launchd starts the agent on demand; it must convert and then exit by itself.
+#[cfg(target_os = "macos")]
+#[test]
+fn on_demand_run_converts_then_exits() {
+    let home = tempfile::tempdir().unwrap();
+    let photos = tempfile::tempdir().unwrap();
+    let existing = photos.path().join("existing.bmp");
+    fs::copy(fixture("photo.bmp"), &existing).unwrap();
+    write_config(home.path(), photos.path(), true);
+    let mut agent = Agent::start_with(home.path(), &["--on-demand"]);
+    let jxl = photos.path().join("existing.jxl");
+    assert!(wait_until(Duration::from_secs(60), || jxl.exists() && !existing.exists()), "not converted");
+    agent.wait_for_line("待機状態になったため終了", Duration::from_secs(30));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(s) = agent.child.try_wait().unwrap() {
+            break s;
+        }
+        assert!(Instant::now() < deadline, "on-demand run did not exit");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(status.success());
 }

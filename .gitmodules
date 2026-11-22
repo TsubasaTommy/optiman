@@ -1,0 +1,4 @@
+[submodule "third_party/libjxl"]
+	path = third_party/libjxl
+	url = https://github.com/libjxl/libjxl
+	shallow = true

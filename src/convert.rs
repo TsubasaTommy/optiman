@@ -1,38 +1,51 @@
-//! Converting a single photo, with the safety checks that make deleting the original acceptable:
-//! encode in memory → verify → write a hidden temp file → fsync → rename → re-check the source
-//! is unchanged → only then apply the original-file policy.
+//! Converting a single photo to JPEG XL, with the checks that make deleting the original safe:
+//! encode in memory → verify (JPEG: rebuilt file is byte-identical; others: decoded pixels are
+//! identical) → hidden temp file → fsync → rename → re-check the source → only then apply the
+//! original-file policy.
 
 use std::fs::{self, File};
 use std::io::Write;
+use std::mem::DropGuard;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::config::{Config, OriginalPolicy};
-use crate::encode::{self, EncodeError, EncoderKind};
 use crate::filter::TEMP_SUFFIX;
-use crate::platform::fsutil;
+use crate::jxl::{self, EncodeError, EncodeOptions};
+use crate::metadata::{self, Container};
+use crate::platform::{self, fsutil};
 use crate::state::mtime_ns;
+use crate::{exif, image::SourceImage};
+
+pub const OUTPUT_EXTENSION: &str = "jxl";
 
 #[derive(Debug, Clone)]
 pub struct ConvertCtx {
-    pub quality: u8,
-    pub speed: u8,
+    pub effort: u8,
+    pub threads: usize,
     pub original: OriginalPolicy,
     pub skip_if_larger: bool,
-    pub encoder: EncoderKind,
     pub dry_run: bool,
 }
 
+/// libjxl worker threads per encode: half the cores (the encode runs at background priority).
+pub fn default_threads() -> usize {
+    std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(1).max(1)
+}
+
 impl ConvertCtx {
-    pub fn new(cfg: &Config, encoder: EncoderKind) -> ConvertCtx {
+    pub fn new(cfg: &Config) -> ConvertCtx {
         ConvertCtx {
-            quality: cfg.quality,
-            speed: cfg.speed,
+            effort: cfg.effort,
+            threads: default_threads(),
             original: cfg.original,
             skip_if_larger: cfg.skip_if_larger,
-            encoder,
             dry_run: false,
         }
+    }
+
+    fn options(&self) -> EncodeOptions {
+        EncodeOptions { effort: self.effort, threads: self.threads }
     }
 }
 
@@ -64,7 +77,7 @@ pub enum Outcome {
     },
     /// Dry run: would be converted to this path.
     WouldConvert(PathBuf),
-    /// Keep mode: an AVIF for this exact source already exists.
+    /// Keep mode: a JPEG XL for this exact source already exists.
     AlreadyDone(PathBuf),
     /// Not converted on purpose. `remember`: don't retry this version of the file.
     Skipped {
@@ -99,9 +112,7 @@ impl Outcome {
             _ => None,
         }
     }
-}
 
-impl Outcome {
     pub fn describe(&self, path: &Path) -> Option<String> {
         let p = path.display();
         Some(match self {
@@ -145,13 +156,14 @@ enum Target {
     Done(PathBuf),
 }
 
-/// `IMG_1.jpg` → `IMG_1.avif`; on a name clash `IMG_1-jpg.avif`, then `IMG_1-jpg-2.avif` ...
+/// `IMG_1.jpg` → `IMG_1.jxl`; on a name clash `IMG_1-jpg.jxl`, then `IMG_1-jpg-2.jxl` ...
 fn choose_output(src: &Path, src_mtime: SystemTime, keep_mode: bool) -> Option<Target> {
     let dir = src.parent()?;
     let stem = src.file_stem()?.to_string_lossy().into_owned();
     let ext = src.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    let mut names = vec![format!("{stem}.avif"), format!("{stem}-{ext}.avif")];
-    names.extend((2..100).map(|n| format!("{stem}-{ext}-{n}.avif")));
+    let names = [format!("{stem}.{OUTPUT_EXTENSION}"), format!("{stem}-{ext}.{OUTPUT_EXTENSION}")]
+        .into_iter()
+        .chain((2..100).map(|n| format!("{stem}-{ext}-{n}.{OUTPUT_EXTENSION}")));
     for name in names {
         let candidate = dir.join(name);
         match fs::symlink_metadata(&candidate) {
@@ -168,16 +180,66 @@ fn same_file_state(a: &fs::Metadata, b: &fs::Metadata) -> bool {
     a.len() == b.len() && a.modified().ok() == b.modified().ok()
 }
 
+/// Encodes in memory and proves the result is lossless. Returns the JPEG XL bytes.
+fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<Vec<u8>, Outcome> {
+    let size = data.len() as u64;
+    let too_big = |jxl: &[u8]| {
+        (ctx.skip_if_larger && jxl.len() as u64 >= size).then(|| {
+            Outcome::skipped(
+                format!("JPEG XL の方が大きいため元ファイルを維持 ({} → {})", human(size), human(jxl.len() as u64)),
+                fp,
+            )
+        })
+    };
+    let encode_err = |e: EncodeError| match e {
+        EncodeError::Unsupported(m) => Outcome::skipped(m, fp),
+        EncodeError::Failed(m) => Outcome::failed(m),
+    };
+    let verify_err =
+        |m: String| Outcome::Failed { reason: format!("劣化なしの検証に失敗: {m}"), remember: Some(fp) };
+
+    if let Some(reason) = metadata::lossy_extras(&data) {
+        return Err(Outcome::skipped(reason, fp));
+    }
+    match metadata::sniff(&data) {
+        Container::Jpeg => {
+            let jxl = jxl::transcode_jpeg(&data, &ctx.options()).map_err(encode_err)?;
+            if let Some(skip) = too_big(&jxl) {
+                return Err(skip);
+            }
+            jxl::verify_jpeg(&jxl, &data).map_err(verify_err)?;
+            Ok(jxl)
+        }
+        Container::Heif => Err(Outcome::skipped("HEIC/HEIF は対象外です (非可逆形式)", fp)),
+        Container::WebP if !metadata::webp_is_lossless(&data) => Err(Outcome::skipped("非可逆 WebP は対象外です", fp)),
+        _ => {
+            let meta = jxl::Metadata {
+                exif: metadata::extract_exif(&data).map(|mut e| {
+                    // The codestream carries the orientation; keep EXIF consistent with it.
+                    exif::normalize_orientation(&mut e);
+                    e
+                }),
+                xmp: metadata::extract_xmp(&data).map(|x| metadata::normalize_xmp_orientation(&x)),
+            };
+            let img: SourceImage = platform::image::decode(&data).map_err(encode_err)?;
+            drop(data);
+            let jxl = jxl::encode_lossless(&img, &meta, &ctx.options()).map_err(encode_err)?;
+            if let Some(skip) = too_big(&jxl) {
+                return Err(skip);
+            }
+            jxl::verify_lossless(&jxl, &img).map_err(verify_err)?;
+            Ok(jxl)
+        }
+    }
+}
+
 pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
     let Ok(md) = fs::symlink_metadata(path) else { return Outcome::Ignored };
     if !md.is_file() || md.len() == 0 {
         return Outcome::Ignored;
     }
-    if fsutil::is_placeholder(&md) {
-        return Outcome::Ignored; // not downloaded from the cloud; converting would force a download
-    }
-    if fsutil::is_hidden(&md) {
-        return Outcome::Ignored;
+    if fsutil::is_placeholder(&md) || fsutil::is_hidden(&md) {
+        return Outcome::Ignored; // not downloaded from the cloud (converting would download it), or hidden
     }
     let size = md.len();
     let mtime = md.modified().unwrap_or(SystemTime::UNIX_EPOCH);
@@ -199,43 +261,31 @@ pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
         Ok(now) if same_file_state(&md, &now) => {}
         _ => return Outcome::Requeue("読み込み中に変更されました".into()),
     }
-
-    let encoded = match encode::encode(ctx.encoder, &data, ctx.quality, ctx.speed) {
+    let encoded = match encode_verified(ctx, data, fp) {
         Ok(e) => e,
-        Err(EncodeError::Unsupported(m)) => return Outcome::skipped(m, fp),
-        Err(EncodeError::Failed(m)) => return Outcome::failed(m),
+        Err(outcome) => return outcome,
     };
-    drop(data);
-
-    let after = encoded.avif.len() as u64;
-    if ctx.skip_if_larger && after >= size {
-        return Outcome::skipped(
-            format!("AVIF の方が大きいため元ファイルを維持 ({} → {})", human(size), human(after)),
-            fp,
-        );
-    }
-    if let Err(m) = encode::verify(&encoded.avif, encoded.width, encoded.height) {
-        return Outcome::Failed { reason: format!("出力の検証に失敗: {m}"), remember: Some(fp) };
-    }
+    let after = encoded.len() as u64;
 
     let Some(dir) = target.parent() else { return Outcome::failed("出力先フォルダが不明") };
     let file_name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = dir.join(format!(".{file_name}{TEMP_SUFFIX}"));
-    if let Err(e) = write_temp(&tmp, &encoded.avif, &md) {
-        let _ = fs::remove_file(&tmp);
+    // Removed on every early return; dismissed once the file has been renamed into place.
+    let tmp = DropGuard::new(dir.join(format!(".{file_name}{TEMP_SUFFIX}")), |p| {
+        let _ = fs::remove_file(p);
+    });
+    if let Err(e) = write_temp(&tmp, &encoded, &md) {
         return Outcome::failed(format!("書き込めません: {e}"));
     }
     drop(encoded);
     fsutil::copy_extra_metadata(path, &tmp);
 
     if target.exists() {
-        let _ = fs::remove_file(&tmp);
         return Outcome::Requeue("出力先に同名ファイルが作成されました".into());
     }
-    if let Err(e) = fs::rename(&tmp, &target) {
-        let _ = fs::remove_file(&tmp);
+    if let Err(e) = fs::rename(&*tmp, &target) {
         return Outcome::failed(format!("出力ファイルを配置できません: {e}"));
     }
+    DropGuard::dismiss(tmp);
     fsutil::sync_dir(dir);
 
     // The source must be exactly what we encoded before we touch it.
@@ -278,16 +328,16 @@ mod tests {
             Some(Target::Done(p)) => format!("done:{}", p.file_name().unwrap().to_string_lossy()),
             None => "none".into(),
         };
-        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1.avif");
-        fs::write(dir.path().join("IMG_1.avif"), b"other").unwrap();
-        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1-jpg.avif");
-        fs::write(dir.path().join("IMG_1-jpg.avif"), b"other").unwrap();
-        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1-jpg-2.avif");
+        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1.jxl");
+        fs::write(dir.path().join("IMG_1.jxl"), b"other").unwrap();
+        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1-jpg.jxl");
+        fs::write(dir.path().join("IMG_1-jpg.jxl"), b"other").unwrap();
+        assert_eq!(name(choose_output(&src, t, false)), "new:IMG_1-jpg-2.jxl");
 
         // keep mode recognises an earlier output by its copied mtime
-        let f = File::options().write(true).open(dir.path().join("IMG_1.avif")).unwrap();
+        let f = File::options().write(true).open(dir.path().join("IMG_1.jxl")).unwrap();
         f.set_modified(t).unwrap();
-        assert_eq!(name(choose_output(&src, t, true)), "done:IMG_1.avif");
+        assert_eq!(name(choose_output(&src, t, true)), "done:IMG_1.jxl");
     }
 
     #[test]

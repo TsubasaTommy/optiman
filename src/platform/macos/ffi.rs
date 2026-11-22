@@ -97,6 +97,7 @@ unsafe extern "C" {
     pub static kCFBooleanFalse: CFBooleanRef;
 
     pub fn CFRelease(cf: CFTypeRef);
+    pub fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> Boolean;
     pub fn CFGetTypeID(cf: CFTypeRef) -> CFTypeID;
     pub fn CFStringGetTypeID() -> CFTypeID;
     pub fn CFDictionaryGetTypeID() -> CFTypeID;
@@ -204,8 +205,33 @@ unsafe extern "C" {
     pub fn CGImageGetHeight(image: CGImageRef) -> usize;
     pub fn CGImageGetColorSpace(image: CGImageRef) -> CGColorSpaceRef;
     pub fn CGImageGetAlphaInfo(image: CGImageRef) -> u32;
+    pub fn CGImageGetBitmapInfo(image: CGImageRef) -> u32;
+    pub fn CGImageGetBitsPerComponent(image: CGImageRef) -> usize;
+    pub fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
+    pub fn CGImageGetBytesPerRow(image: CGImageRef) -> usize;
+    pub fn CGImageGetDataProvider(image: CGImageRef) -> *mut c_void;
+    pub fn CGDataProviderCopyData(provider: *mut c_void) -> CFDataRef;
     pub fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
     pub fn CGColorSpaceIsWideGamutRGB(space: CGColorSpaceRef) -> bool;
+    pub fn CGColorSpaceGetModel(space: CGColorSpaceRef) -> i32;
+    pub fn CGColorSpaceGetBaseColorSpace(space: CGColorSpaceRef) -> CGColorSpaceRef;
+    pub fn CGColorSpaceCopyName(space: CGColorSpaceRef) -> CFStringRef;
+    pub fn CGColorSpaceCopyICCData(space: CGColorSpaceRef) -> CFDataRef;
+    pub fn CGColorSpaceCreateWithICCData(data: CFTypeRef) -> CGColorSpaceRef;
+    pub fn CGDataProviderCreateWithCFData(data: CFDataRef) -> *mut c_void;
+    pub fn CGImageCreate(
+        width: usize,
+        height: usize,
+        bits_per_component: usize,
+        bits_per_pixel: usize,
+        bytes_per_row: usize,
+        space: CGColorSpaceRef,
+        bitmap_info: u32,
+        provider: *mut c_void,
+        decode: *const f64,
+        should_interpolate: bool,
+        intent: i32,
+    ) -> CGImageRef;
     pub fn CGBitmapContextCreate(
         data: *mut c_void,
         width: usize,
@@ -270,6 +296,7 @@ unsafe extern "C" {
         flags: u32,
     ) -> FSEventStreamRef;
     pub fn FSEventStreamSetDispatchQueue(stream: FSEventStreamRef, queue: DispatchQueue);
+    pub fn FSEventStreamSetExclusionPaths(stream: FSEventStreamRef, paths: CFArrayRef) -> Boolean;
     pub fn FSEventStreamStart(stream: FSEventStreamRef) -> Boolean;
     pub fn FSEventStreamStop(stream: FSEventStreamRef);
     pub fn FSEventStreamInvalidate(stream: FSEventStreamRef);
@@ -367,14 +394,14 @@ pub unsafe fn cf_data_bytes<'a>(data: CFDataRef) -> &'a [u8] {
 
 pub fn cf_i64(v: i64) -> Cf {
     unsafe {
-        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &v as *const i64 as *const c_void))
+        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, (&raw const v).cast::<c_void>()))
             .expect("CFNumberCreate failed")
     }
 }
 
 pub fn cf_f64(v: f64) -> Cf {
     unsafe {
-        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &v as *const f64 as *const c_void))
+        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, (&raw const v).cast::<c_void>()))
             .expect("CFNumberCreate failed")
     }
 }
@@ -386,7 +413,7 @@ pub fn cf_url(path: &Path) -> Option<Cf> {
             kCFAllocatorDefault,
             bytes.as_ptr(),
             bytes.len() as CFIndex,
-            path.is_dir() as Boolean,
+            Boolean::from(path.is_dir()),
         ))
     }
 }
@@ -437,7 +464,7 @@ pub unsafe fn cf_dict_i64(dict: CFDictionaryRef, key: CFStringRef) -> Option<i64
             return None;
         }
         let mut out: i64 = 0;
-        (CFNumberGetValue(v, kCFNumberSInt64Type, &mut out as *mut i64 as *mut c_void) != 0).then_some(out)
+        (CFNumberGetValue(v, kCFNumberSInt64Type, (&raw mut out).cast::<c_void>()) != 0).then_some(out)
     }
 }
 

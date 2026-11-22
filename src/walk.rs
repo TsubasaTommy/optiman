@@ -26,6 +26,9 @@ pub fn walk(root: &Path, dir: &Path, filter: &Filter, f: &mut dyn FnMut(PathBuf)
                 continue;
             }
             let path = entry.path();
+            if filter.in_excluded_dir(&path) {
+                continue;
+            }
             if ft.is_dir() {
                 stack.push(path);
             } else if ft.is_file() && filter.accepts(root, &path) {
@@ -46,16 +49,16 @@ mod tests {
         let root = dir.path();
         fs::create_dir_all(root.join("a/b")).unwrap();
         fs::create_dir_all(root.join("x.photoslibrary")).unwrap();
-        for p in ["1.jpg", "a/2.PNG", "a/b/3.heic", "a/b/notes.txt", "x.photoslibrary/4.jpg", "a/.5.jpg"] {
+        for p in ["1.jpg", "a/2.PNG", "a/b/3.tif", "a/b/notes.txt", "x.photoslibrary/4.jpg", "a/.5.jpg"] {
             fs::write(root.join(p), b"x").unwrap();
         }
-        fs::write(root.join("a/.6.avif.oif-tmp"), b"x").unwrap();
+        fs::write(root.join("a/.6.jxl.oif-tmp"), b"x").unwrap();
         let filter = Filter::new(&Config::default());
         let mut found = Vec::new();
         walk(root, root, &filter, &mut |p| found.push(p.strip_prefix(root).unwrap().to_path_buf()));
         found.sort();
-        let expected: Vec<PathBuf> = ["1.jpg", "a/2.PNG", "a/b/3.heic"].iter().map(PathBuf::from).collect();
+        let expected: Vec<PathBuf> = ["1.jpg", "a/2.PNG", "a/b/3.tif"].iter().map(PathBuf::from).collect();
         assert_eq!(found, expected);
-        assert!(!root.join("a/.6.avif.oif-tmp").exists());
+        assert!(!root.join("a/.6.jxl.oif-tmp").exists());
     }
 }

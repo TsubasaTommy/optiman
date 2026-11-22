@@ -87,10 +87,7 @@ impl Watcher {
                     FSEventStreamSetExclusionPaths(stream, arr.ptr());
                 }
             }
-            let queue = dispatch_queue_create(
-                c"io.github.tsubasatommy.optimize-image-folder.fsevents".as_ptr(),
-                std::ptr::null(),
-            );
+            let queue = dispatch_queue_create(c"io.github.tsubasatommy.optiman.fsevents".as_ptr(), std::ptr::null());
             FSEventStreamSetDispatchQueue(stream, queue);
             if FSEventStreamStart(stream) == 0 {
                 FSEventStreamInvalidate(stream);

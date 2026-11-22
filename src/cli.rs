@@ -17,7 +17,7 @@ use crate::filter::Filter;
 use crate::platform::{self, autostart, paths};
 use crate::state::State;
 use crate::walk::walk;
-use crate::{APP_NAME, VERSION, logger, restore};
+use crate::{APP_NAME, DISPLAY_NAME, LEGACY_NAME, VERSION, logger, restore};
 
 /// How long an on-demand (launchd) run stays alive after the last activity.
 const ON_DEMAND_IDLE_EXIT: Duration = Duration::from_secs(5);
@@ -160,9 +160,14 @@ pub fn main() -> i32 {
     // Opened from the settings app bundle (macOS) without arguments.
     #[cfg(target_os = "macos")]
     if std::env::args_os().len() == 1 && autostart::launched_from_app_bundle() {
+        migrate_from_legacy();
         return report(platform::ui::run_settings(&default_config_path()));
     }
     let cli = Cli::parse();
+    if cli.config.is_none() && !matches!(cli.command, Command::Run { .. } | Command::Worker(_) | Command::Viewer { .. })
+    {
+        migrate_from_legacy();
+    }
     let config_path = cli.config.clone().unwrap_or_else(default_config_path);
     let result = match cli.command {
         Command::Install(args) => install(&config_path, args),
@@ -191,6 +196,13 @@ pub fn main() -> i32 {
         }
     };
     report(result)
+}
+
+/// Takes over an installation made under the former name (see [`crate::migrate`]).
+pub fn migrate_from_legacy() {
+    if crate::migrate::from_legacy().any() {
+        eprintln!("以前の名前 ({LEGACY_NAME}) の設定と自動起動を {DISPLAY_NAME} に引き継ぎました");
+    }
 }
 
 fn report(result: Result<()>) -> i32 {
@@ -301,7 +313,7 @@ impl Prompt {
 fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     let mut cfg = Config::load(config_path).unwrap_or_default();
     let mut prompt = Prompt::open(args.yes);
-    println!("{APP_NAME} v{VERSION} のセットアップ (JPEG XL・劣化なし)");
+    println!("{DISPLAY_NAME} v{VERSION} のセットアップ (JPEG XL・劣化なし)");
 
     let folders: Vec<PathBuf> = if !args.folders.is_empty() {
         args.folders.clone()
@@ -444,7 +456,7 @@ fn purge_files(config_path: &Path) -> Vec<PathBuf> {
 }
 
 fn status(config_path: &Path) -> Result<()> {
-    println!("{APP_NAME} v{VERSION} (libjxl {})", crate::jxl::libjxl_version());
+    println!("{DISPLAY_NAME} v{VERSION} (libjxl {})", crate::jxl::libjxl_version());
     println!("設定ファイル: {}", config_path.display());
     let running = agent_running(config_path);
     let registered = autostart::is_registered();
@@ -692,9 +704,7 @@ mod tests {
         let shared = dir.path().join("Documents");
         fs::create_dir_all(shared.join("sub")).unwrap();
         let config = shared.join("my-config.toml");
-        for f in
-            ["my-config.toml", "state.toml", "agent.lock", "optimize-image-folder.log", "notes.txt", "sub/photo.jpg"]
-        {
+        for f in ["my-config.toml", "state.toml", "agent.lock", "optiman.log", "notes.txt", "sub/photo.jpg"] {
             fs::write(shared.join(f), b"x").unwrap();
         }
         let removed = purge_files(&config);
@@ -707,7 +717,7 @@ mod tests {
     #[test]
     fn purge_removes_empty_dedicated_folder() {
         let dir = tempfile::tempdir().unwrap();
-        let own = dir.path().join("optimize-image-folder");
+        let own = dir.path().join("optiman");
         fs::create_dir_all(&own).unwrap();
         let config = own.join("config.toml");
         fs::write(&config, b"x").unwrap();

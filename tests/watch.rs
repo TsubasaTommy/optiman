@@ -18,8 +18,8 @@ impl Agent {
     }
 
     fn start_with(home: &Path, extra: &[&str]) -> Agent {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_optimize-image-folder"))
-            .env("OIF_HOME", home)
+        let mut child = Command::new(env!("CARGO_BIN_EXE_optiman"))
+            .env("OPTIMAN_HOME", home)
             .args(["--config"])
             .arg(home.join("config.toml"))
             .args(["run", "--log-stderr"])

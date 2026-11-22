@@ -94,7 +94,7 @@ fn scale(v: i32, dpi: u32) -> i32 {
 fn message_box(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) {
     let text = wide(text);
     unsafe {
-        MessageBoxW(Some(owner), PCWSTR(text.as_ptr()), w!("Optimize Image Folder"), style | MB_OK);
+        MessageBoxW(Some(owner), PCWSTR(text.as_ptr()), w!("Optiman"), style | MB_OK);
     }
 }
 
@@ -421,7 +421,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         let _ = InitCommonControlsEx(&icc);
     }
     let instance = unsafe { GetModuleHandleW(None) }?;
-    let class_name = w!("OptimizeImageFolderSettings");
+    let class_name = w!("OptimanSettings");
     let class = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
         lpfnWndProc: Some(window_proc),
@@ -461,7 +461,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         CreateWindowExW(
             WS_EX_CONTROLPARENT,
             class_name,
-            w!("Optimize Image Folder の設定"),
+            w!("Optiman の設定"),
             style,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

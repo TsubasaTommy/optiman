@@ -10,7 +10,7 @@ use std::path::PathBuf;
 fn main() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|a| a == "worker") {
-        std::process::exit(oif::cli::main());
+        std::process::exit(optiman::cli::main());
     }
     let mut config = None;
     let mut settings = false;
@@ -22,13 +22,16 @@ fn main() {
             settings = true;
         }
     }
-    let config = config.unwrap_or_else(oif::app::default_config_path);
+    if settings && config.is_none() {
+        optiman::cli::migrate_from_legacy();
+    }
+    let config = config.unwrap_or_else(optiman::app::default_config_path);
     if settings {
-        if let Err(e) = oif::platform::ui::run_settings(&config) {
+        if let Err(e) = optiman::platform::ui::run_settings(&config) {
             eprintln!("{e:#}");
             std::process::exit(1);
         }
         return;
     }
-    std::process::exit(oif::cli::run_agent(&config, false, false));
+    std::process::exit(optiman::cli::run_agent(&config, false, false));
 }

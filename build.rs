@@ -52,13 +52,13 @@ fn embed_windows_manifest() {
 fn main() {
     let src = Path::new(SUBMODULE);
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=OIF_SKIP_LIBJXL");
+    println!("cargo:rerun-if-env-changed=OPTIMAN_SKIP_LIBJXL");
     if cfg_msvc() {
         embed_windows_manifest();
     }
     // Type-checking another target (e.g. `cargo check --target x86_64-pc-windows-msvc` on a Mac)
     // does not link, so the native library build can be skipped.
-    if env::var_os("OIF_SKIP_LIBJXL").is_some() {
+    if env::var_os("OPTIMAN_SKIP_LIBJXL").is_some() {
         return;
     }
     println!("cargo:rerun-if-changed={SUBMODULE}/lib/include");
@@ -112,8 +112,8 @@ fn main() {
         // The Visual Studio generator builds the files of one project serially unless asked.
         cfg.cflag("/MP").cxxflag("/MP");
     }
-    println!("cargo:rerun-if-env-changed=OIF_LIBJXL_CACHE_DIR");
-    let dst = match env::var_os("OIF_LIBJXL_CACHE_DIR") {
+    println!("cargo:rerun-if-env-changed=OPTIMAN_LIBJXL_CACHE_DIR");
+    let dst = match env::var_os("OPTIMAN_LIBJXL_CACHE_DIR") {
         Some(dir) => cached_build(Path::new(&dir), &mut cfg),
         None => cfg.build(),
     };

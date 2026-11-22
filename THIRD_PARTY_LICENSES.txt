@@ -1,4 +1,4 @@
-Third-party software in optimize-image-folder
+Third-party software in Optiman
 ==============================================
 
 The release binaries statically link the following software. Their licenses follow.

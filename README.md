@@ -3,48 +3,50 @@
   <img alt="写真はそのまま。容量だけ、小さく。ピクチャフォルダの IMG_2041.jpg (2.29 MB) が IMG_2041.jxl (1.85 MB) に、夕景_4K.png (10.3 MB) が夕景_4K.jxl (5.76 MB) に変換され、IMG_2042.heic はそのまま残る様子" src="docs/hero-light.svg" width="100%">
 </picture>
 
-# optimize-image-folder
+# Optiman
 
 写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する macOS / Windows 用ツールです。JPEG は元のファイルにいつでも戻せる形のまま約 2 割、PNG は約 3〜4 割小さくなります。待っている間は CPU を使いません。
 
-ダウンロードと手順は [配布ページ](https://tsubasatommy.github.io/optimize-image-folder/) に、過去の版は [リリース](https://github.com/TsubasaTommy/optimize-image-folder/releases) にあります。
+ダウンロードと手順は [配布ページ](https://tsubasatommy.github.io/optiman/) に、過去の版は [リリース](https://github.com/TsubasaTommy/optiman/releases) にあります。
 
 ## インストール
 
 ### macOS 11 以降 (Homebrew)
 
 ```sh
-brew install tsubasatommy/tap/optimize-image-folder
-optimize-image-folder install
+brew install tsubasatommy/tap/optiman
+optiman install
 ```
 
-`install` で、変換するフォルダ (既定は `~/Pictures`。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は `optimize-image-folder settings` か `~/Applications/Optimize Image Folder.app` で開けます。
+`install` で、変換するフォルダ (既定は `~/Pictures`。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は `optiman settings` か `~/Applications/Optiman.app` で開けます。
 
 Homebrew を使わない場合は、次を実行します。最新リリースをダウンロードし、SHA256 を確かめてから `~/.local/bin` に置きます。
 
 ```sh
-curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh
+curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh
 ```
+
+以前の名前 (optimize-image-folder) で入れている場合は、Homebrew なら `brew update` と `brew upgrade` で Optiman に切り替わります。そのあと一度 `optiman install` を実行すると、設定と自動起動を引き継ぎます。curl のコマンドで入れ直した場合も同じように引き継ぎます。
 
 ### Windows 10 / 11
 
-[OptimizeImageFolder-Setup.exe をダウンロード](https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe)
+[Optiman-Setup.exe をダウンロード](https://github.com/TsubasaTommy/optiman/releases/latest/download/Optiman-Setup.exe)
 
-x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optimize Image Folder」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
+x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。以前の名前 (Optimize Image Folder) で入れている場合も、上書きすると設定と自動起動を引き継いで置き換えます。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
 
 > [!NOTE]
-> インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は [SHA256SUMS.txt](https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt) でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。
+> インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は [SHA256SUMS.txt](https://github.com/TsubasaTommy/optiman/releases/latest/download/SHA256SUMS.txt) でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。
 
 PowerShell から入れる場合は、次を実行します。最新の Setup.exe をダウンロードし、SHA256 を確かめてから起動します。
 
 ```powershell
-irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex
+irm https://tsubasatommy.github.io/optiman/install.ps1 | iex
 ```
 
 winget でも入れられます。登録は Microsoft の審査中です ([winget-pkgs #486181](https://github.com/microsoft/winget-pkgs/pull/486181))。見つからない場合は、上のインストーラーか PowerShell で入れてください。
 
 ```powershell
-winget install TsubasaTommy.OptimizeImageFolder
+winget install TsubasaTommy.Optiman
 ```
 
 ## JPEG XL を表示するには
@@ -73,7 +75,7 @@ winget install --id 9MZPRTH5C0TB --source msstore
 - 変換しても小さくならないファイルは、元のまま残します。
 
 > [!WARNING]
-> **元の写真は、既定では削除されます。** 上の確認に成功し、変換中に元ファイルが変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも `optimize-image-folder restore <ファイルまたはフォルダ>` で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。
+> **元の写真は、既定では削除されます。** 上の確認に成功し、変換中に元ファイルが変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも `optiman restore <ファイルまたはフォルダ>` で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。
 
 4K 写真での実測値 (Apple Silicon、低優先度で実行):
 
@@ -135,8 +137,8 @@ CI では、macOS と Windows の両方で、待機中に CPU 時間が増えな
 
 設定画面で変えられますが、手で編集することもできます (編集したら `restart`)。
 
-- macOS: `~/Library/Application Support/optimize-image-folder/config.toml`
-- Windows: `%APPDATA%\optimize-image-folder\config.toml`
+- macOS: `~/Library/Application Support/optiman/config.toml`
+- Windows: `%APPDATA%\optiman\config.toml`
 
 ```toml
 folders = ["~/Pictures"]   # 変換するフォルダ (サブフォルダも対象)
@@ -151,21 +153,21 @@ extensions = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
 exclude = []               # 除外するフォルダ/ファイル名のパターン (* と ?)
 ```
 
-ログは、macOS では `~/Library/Logs/optimize-image-folder/`、Windows では `%LOCALAPPDATA%\optimize-image-folder\logs\` にあります。
+ログは、macOS では `~/Library/Logs/optiman/`、Windows では `%LOCALAPPDATA%\optiman\logs\` にあります。
 
 ## アンインストール
 
 macOS:
 
 ```sh
-optimize-image-folder uninstall --purge
-brew uninstall optimize-image-folder
+optiman uninstall --purge
+brew uninstall optiman
 ```
 
-Windows では、「設定」の「アプリ」から「Optimize Image Folder」をアンインストールするか、次を実行します。
+Windows では、「設定」の「アプリ」から「Optiman」をアンインストールするか、次を実行します。
 
 ```powershell
-winget uninstall TsubasaTommy.OptimizeImageFolder
+winget uninstall TsubasaTommy.Optiman
 ```
 
 変換済みの JPEG XL はそのまま残ります。元に戻したい場合は、アンインストールの前に `restore` を実行してください。
@@ -184,7 +186,7 @@ Rust 1.100 (`rust-toolchain.toml` で固定) と CMake が必要です。
 scripts/fetch-libjxl.sh     # libjxl と必要なサブモジュールだけを浅く取得
 cargo build --release
 cargo test
-scripts/idle-check.sh target/release/optimize-image-folder 60
+scripts/idle-check.sh target/release/optiman 60
 ```
 
 リリースは、`v*` タグを push すると GitHub Actions が作ります (macOS Universal の tar.gz、Windows の Setup.exe と x64 / ARM64 の zip)。Homebrew の Formula と winget のマニフェストは `scripts/render_packaging.py` で生成します。

@@ -1,26 +1,26 @@
 [package]
-name = "optimize-image-folder"
-version = "0.2.0"
+name = "optiman"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.100"
 license = "MIT"
 description = "Converts photo folders to JPEG XL without any quality loss (reversible JPEG recompression, lossless PNG/TIFF/BMP), with zero resources while idle"
-repository = "https://github.com/TsubasaTommy/optimize-image-folder"
+repository = "https://github.com/TsubasaTommy/optiman"
 readme = "README.md"
-default-run = "optimize-image-folder"
+default-run = "optiman"
 build = "build.rs"
 exclude = ["third_party/libjxl/testdata", "tests/fixtures/*.heic"]
 
 [lib]
-name = "oif"
+name = "optiman"
 path = "src/lib.rs"
 
 [[bin]]
-name = "optimize-image-folder"
+name = "optiman"
 path = "src/main.rs"
 
 [[bin]]
-name = "optimize-image-folder-agent"
+name = "optiman-agent"
 path = "src/bin/agent.rs"
 
 [profile.release]

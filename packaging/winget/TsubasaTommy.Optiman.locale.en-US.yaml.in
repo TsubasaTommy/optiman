@@ -1,15 +1,15 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
 
-PackageIdentifier: TsubasaTommy.OptimizeImageFolder
+PackageIdentifier: TsubasaTommy.Optiman
 PackageVersion: @VERSION@
 PackageLocale: en-US
 Publisher: TsubasaTommy
 PublisherUrl: https://github.com/TsubasaTommy
-PublisherSupportUrl: https://github.com/TsubasaTommy/optimize-image-folder/issues
-PackageName: Optimize Image Folder
-PackageUrl: https://tsubasatommy.github.io/optimize-image-folder/
+PublisherSupportUrl: https://github.com/TsubasaTommy/optiman/issues
+PackageName: Optiman
+PackageUrl: https://tsubasatommy.github.io/optiman/
 License: MIT
-LicenseUrl: https://github.com/TsubasaTommy/optimize-image-folder/blob/main/LICENSE
+LicenseUrl: https://github.com/TsubasaTommy/optiman/blob/main/LICENSE
 Copyright: Copyright (c) 2026 TsubasaTommy
 ShortDescription: Converts photo folders to JPEG XL without any quality loss, using no resources while idle.
 Description: |-
@@ -17,13 +17,13 @@ Description: |-
   JPEGs are recompressed so the identical JPEG can be rebuilt byte for byte; PNG, TIFF, BMP and lossless WebP are encoded losslessly.
   Every conversion is verified before the original is removed. While idle the agent uses no CPU.
   The installer can also install Microsoft's free JPEG XL Image Extension (Windows 11 24H2 and later) so Explorer and Photos can show the files.
-Moniker: optimize-image-folder
+Moniker: optiman
 Tags:
 - jpeg-xl
 - jxl
 - lossless
 - photo
 - image-compression
-ReleaseNotesUrl: https://github.com/TsubasaTommy/optimize-image-folder/releases/tag/v@VERSION@
+ReleaseNotesUrl: https://github.com/TsubasaTommy/optiman/releases/tag/v@VERSION@
 ManifestType: defaultLocale
 ManifestVersion: 1.28.0

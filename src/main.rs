@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(oif::cli::main());
+    std::process::exit(optiman::cli::main());
 }

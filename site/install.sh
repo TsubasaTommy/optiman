@@ -1,14 +1,14 @@
 #!/bin/sh
-# optimize-image-folder installer for macOS.
-#   curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh
-# Options after `sh -s --` are passed to `optimize-image-folder install`, e.g.
+# Optiman installer for macOS.
+#   curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh
+# Options after `sh -s --` are passed to `optiman install`, e.g.
 #   curl -fsSL .../install.sh | sh -s -- --folder ~/Pictures --new-only --original trash
 set -eu
 
-REPO="TsubasaTommy/optimize-image-folder"
-ASSET="optimize-image-folder-macos-universal.tar.gz"
+REPO="TsubasaTommy/optiman"
+ASSET="optiman-macos-universal.tar.gz"
 BASE="https://github.com/$REPO/releases/latest/download"
-DEST="${OIF_INSTALL_DIR:-$HOME/.local/bin}"
+DEST="${OPTIMAN_INSTALL_DIR:-$HOME/.local/bin}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "このスクリプトは macOS 用です。Windows は install.ps1 を使ってください。" >&2
@@ -31,21 +31,27 @@ fi
 
 mkdir -p "$DEST"
 tar -xzf "$tmp/$ASSET" -C "$tmp"
+if [ -x "$DEST/optiman" ]; then
+  "$DEST/optiman" stop >/dev/null 2>&1 || true
+fi
+# Up to v0.2.0 the command was called optimize-image-folder. `optiman install` below takes over its
+# settings and launchd agent, so the old binary only needs to stop and go.
 if [ -x "$DEST/optimize-image-folder" ]; then
   "$DEST/optimize-image-folder" stop >/dev/null 2>&1 || true
+  rm -f "$DEST/optimize-image-folder"
 fi
-install -m 755 "$tmp/optimize-image-folder" "$DEST/optimize-image-folder"
-xattr -d com.apple.quarantine "$DEST/optimize-image-folder" 2>/dev/null || true
-echo "インストールしました: $DEST/optimize-image-folder"
+install -m 755 "$tmp/optiman" "$DEST/optiman"
+xattr -d com.apple.quarantine "$DEST/optiman" 2>/dev/null || true
+echo "インストールしました: $DEST/optiman"
 
 case ":$PATH:" in
   *":$DEST:"*) ;;
   *)
     echo ""
-    echo "ヒント: $DEST が PATH に含まれていません。次を実行すると optimize-image-folder コマンドが使えます:"
+    echo "ヒント: $DEST が PATH に含まれていません。次を実行すると optiman コマンドが使えます:"
     echo "  echo 'export PATH=\"$DEST:\$PATH\"' >> ~/.zshrc && exec zsh"
     ;;
 esac
 
 echo ""
-"$DEST/optimize-image-folder" install "$@"
+"$DEST/optiman" install "$@"

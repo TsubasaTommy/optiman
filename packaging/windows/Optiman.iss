@@ -1,10 +1,14 @@
 ; Per-user installer (no administrator rights, no UAC prompt) for Inno Setup 7.
-; Build: ISCC.exe /DAppVersion=0.2.0 /DBinX64=<dir> /DBinArm64=<dir> /DOutputDir=<dir> OptimizeImageFolder.iss
+; Build: ISCC.exe /DAppVersion=0.2.0 /DBinX64=<dir> /DBinArm64=<dir> /DOutputDir=<dir> Optiman.iss
 ;
-; - Installs the x64 or the native arm64 binaries to %LOCALAPPDATA%\Programs\OptimizeImageFolder.
-; - Registers the agent (HKCU Run) through `optimize-image-folder.exe install` and starts it.
+; - Installs the x64 or the native arm64 binaries to %LOCALAPPDATA%\Programs\Optiman.
+; - Registers the agent (HKCU Run) through `optiman.exe install` and starts it.
 ; - Optionally installs Microsoft's free "JPEG XL Image Extension" from the Microsoft Store
 ;   (Windows 11 24H2 and later) so Explorer and Photos can show the converted files.
+; - Upgrades an installation of the former name (Optimize Image Folder, up to v0.2.0; same AppId):
+;   stops its agent and removes its files, shortcut and PATH entry; an install in the default
+;   folder (...\OptimizeImageFolder) moves to ...\Optiman. `optiman install` then moves the settings
+;   and replaces the old autostart entry.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -18,10 +22,11 @@
 #ifndef OutputDir
   #define OutputDir "..\..\dist"
 #endif
-#define AppName "Optimize Image Folder"
-#define AppURL "https://tsubasatommy.github.io/optimize-image-folder/"
-#define Cli "optimize-image-folder.exe"
-#define Agent "optimize-image-folder-agent.exe"
+#define AppName "Optiman"
+#define AppURL "https://tsubasatommy.github.io/optiman/"
+#define Cli "optiman.exe"
+#define Agent "optiman-agent.exe"
+#define LegacyCli "optimize-image-folder.exe"
 
 [Setup]
 AppId={{60ADCF2D-2A75-4CF1-86E1-73921ECB571E}
@@ -30,19 +35,19 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=TsubasaTommy
 AppPublisherURL={#AppURL}
-AppSupportURL=https://github.com/TsubasaTommy/optimize-image-folder/issues
-AppUpdatesURL=https://github.com/TsubasaTommy/optimize-image-folder/releases
+AppSupportURL=https://github.com/TsubasaTommy/optiman/issues
+AppUpdatesURL=https://github.com/TsubasaTommy/optiman/releases
 AppCopyright=Copyright (c) 2026 TsubasaTommy
 VersionInfoVersion={#AppVersion}
 PrivilegesRequired=lowest
-DefaultDirName={autopf}\OptimizeImageFolder
+DefaultDirName={autopf}\Optiman
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 OutputDir={#OutputDir}
-OutputBaseFilename=OptimizeImageFolder-Setup
+OutputBaseFilename=Optiman-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -75,8 +80,8 @@ japanese.OriginalTitle=変換後の元ファイル
 english.OriginalTitle=Original files
 japanese.OriginalDesc=JPEG XL への変換が劣化なしで成功したことを検証した後、元のファイルをどうしますか?
 english.OriginalDesc=What should happen to an original after its lossless conversion has been verified?
-japanese.OriginalPrompt=JPEG は元の JPEG にバイト単位で戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。元に戻すには `optimize-image-folder restore` を使います。
-english.OriginalPrompt=JPEGs are recompressed so the identical JPEG can be rebuilt; PNG, TIFF, BMP and lossless WebP are encoded losslessly. `optimize-image-folder restore` undoes a conversion.
+japanese.OriginalPrompt=JPEG は元の JPEG にバイト単位で戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。元に戻すには `optiman restore` を使います。
+english.OriginalPrompt=JPEGs are recompressed so the identical JPEG can be rebuilt; PNG, TIFF, BMP and lossless WebP are encoded losslessly. `optiman restore` undoes a conversion.
 japanese.OriginalDelete=完全に削除する (容量がいちばん減ります)
 english.OriginalDelete=Delete it (saves the most space)
 japanese.OriginalTrash=ごみ箱へ移動する
@@ -93,8 +98,8 @@ japanese.ScanNewOnly=新しく追加された写真だけ変換する
 english.ScanNewOnly=Only convert newly added photos
 japanese.ScanExisting=すでにある写真も変換する
 english.ScanExisting=Also convert the existing photos
-japanese.ViewerUnsupported=この Windows では JPEG XL をエクスプローラーやフォトで表示できません (Windows 11 24H2 以降が必要です)。変換は通常どおり行われ、`optimize-image-folder restore` でいつでも元に戻せます。
-english.ViewerUnsupported=This version of Windows cannot show JPEG XL in Explorer or Photos (Windows 11 24H2 or later is required). Conversion still works, and `optimize-image-folder restore` undoes it at any time.
+japanese.ViewerUnsupported=この Windows では JPEG XL をエクスプローラーやフォトで表示できません (Windows 11 24H2 以降が必要です)。変換は通常どおり行われ、`optiman restore` でいつでも元に戻せます。
+english.ViewerUnsupported=This version of Windows cannot show JPEG XL in Explorer or Photos (Windows 11 24H2 or later is required). Conversion still works, and `optiman restore` undoes it at any time.
 
 [Tasks]
 Name: "jxlviewer"; Description: "{cm:TaskViewer}"; Check: IsViewerSupported
@@ -107,6 +112,9 @@ Source: "{#BinArm64}\{#Agent}"; DestDir: "{app}"; Check: IsArm64; Flags: ignorev
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+Type: files; Name: "{autoprograms}\Optimize Image Folder.lnk"
 
 [Registry]
 ; Puts the CLI (status, convert, restore ...) on the user's PATH.
@@ -126,6 +134,7 @@ Filename: "{app}\{#Cli}"; Parameters: "uninstall"; Flags: runhidden waituntilter
 var
   OriginalPage: TInputOptionWizardPage;
   ScanPage: TInputOptionWizardPage;
+  LegacyDir: String;  { folder of an installation of the former name, or '' }
 
 function IsViewerSupported: Boolean;
 var
@@ -137,11 +146,20 @@ end;
 
 function ConfigExists: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{userappdata}\optimize-image-folder\config.toml'));
+  Result := FileExists(ExpandConstant('{userappdata}\optiman\config.toml'))
+    or FileExists(ExpandConstant('{userappdata}\optimize-image-folder\config.toml'));
 end;
 
 procedure InitializeWizard;
 begin
+  LegacyDir := '';
+  if (WizardForm.PrevAppDir <> '') and FileExists(AddBackslash(WizardForm.PrevAppDir) + '{#LegacyCli}') then
+  begin
+    LegacyDir := RemoveBackslash(WizardForm.PrevAppDir);
+    if CompareText(ExtractFileName(LegacyDir), 'OptimizeImageFolder') = 0 then
+      WizardForm.DirEdit.Text := ExpandConstant('{autopf}\Optiman');
+  end;
+
   OriginalPage := CreateInputOptionPage(wpSelectTasks, CustomMessage('OriginalTitle'),
     CustomMessage('OriginalDesc'), CustomMessage('OriginalPrompt'), True, False);
   OriginalPage.Add(CustomMessage('OriginalDelete'));
@@ -188,7 +206,7 @@ begin
     Result := Result + ' --open-store';
 end;
 
-{ Stop a running agent before its files are replaced (upgrade). }
+{ Stop a running agent before its files are replaced (upgrade), also one of the former name. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Cli: String;
@@ -197,6 +215,8 @@ begin
   Cli := ExpandConstant('{app}\{#Cli}');
   if FileExists(Cli) then
     Exec(Cli, 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if LegacyDir <> '' then
+    Exec(LegacyDir + '\{#LegacyCli}', 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
 end;
 
@@ -227,6 +247,30 @@ begin
   RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Path);
 end;
 
+{ Removes what the former name left behind. Only our own files are deleted, so a folder the user
+  chose keeps anything else that is in it. }
+procedure RemoveLegacyInstall;
+var
+  Moved: Boolean;
+begin
+  if LegacyDir = '' then
+    exit;
+  DeleteFile(LegacyDir + '\{#LegacyCli}');
+  DeleteFile(LegacyDir + '\optimize-image-folder-agent.exe');
+  Moved := CompareText(LegacyDir, RemoveBackslash(ExpandConstant('{app}'))) <> 0;
+  if Moved then
+  begin
+    DeleteFile(LegacyDir + '\README.md');
+    DeleteFile(LegacyDir + '\LICENSE.txt');
+    DeleteFile(LegacyDir + '\THIRD_PARTY_LICENSES.txt');
+    DeleteFile(LegacyDir + '\unins000.exe');
+    DeleteFile(LegacyDir + '\unins000.dat');
+    DeleteFile(LegacyDir + '\unins000.msg');
+    RemoveDir(LegacyDir);
+    RemovePath(LegacyDir);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
@@ -240,6 +284,7 @@ var
 begin
   if CurStep <> ssPostInstall then
     exit;
+  RemoveLegacyInstall;
   WizardForm.StatusLabel.Caption := CustomMessage('Registering');
   if not Exec(ExpandConstant('{app}\{#Cli}'), InstallParams(''), '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
     or (ResultCode <> 0) then

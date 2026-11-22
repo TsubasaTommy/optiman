@@ -104,3 +104,26 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/idle-check.ps1 -Exe target/debug/optimize-image-folder.exe -Seconds 30
+
+      - name: Install / uninstall smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP "oif-smoke"
+          $photos = Join-Path $work "photos"
+          New-Item -ItemType Directory -Force $photos | Out-Null
+          $env:OIF_HOME = Join-Path $work "home"
+          $cli = Resolve-Path target/debug/optimize-image-folder.exe
+          & $cli install --yes --new-only --folder $photos
+          if ($LASTEXITCODE -ne 0) { throw "install failed" }
+          $run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          if (-not (Get-ItemProperty $run -Name "optimize-image-folder" -ErrorAction SilentlyContinue)) { throw "not registered" }
+          Start-Sleep -Seconds 3
+          if (-not (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue)) { throw "the agent did not start" }
+          & $cli status
+          & $cli uninstall --purge
+          if ($LASTEXITCODE -ne 0) { throw "uninstall failed" }
+          Start-Sleep -Seconds 2
+          if (Get-ItemProperty $run -Name "optimize-image-folder" -ErrorAction SilentlyContinue) { throw "still registered" }
+          if (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
+          "OK: install, agent start, uninstall"

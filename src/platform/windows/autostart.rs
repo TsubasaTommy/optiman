@@ -8,8 +8,8 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_SZ, RRF_RT_REG_SZ, RegCloseKey, RegDeleteValueW, RegGetValueW,
-    RegOpenKeyExW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ, RegCloseKey,
+    RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
 };
 use windows::core::{PCWSTR, w};
 
@@ -52,11 +52,24 @@ fn parse_command_line(s: &str) -> Option<(PathBuf, PathBuf)> {
     (flag == "--config").then(|| (PathBuf::from(exe), PathBuf::from(config)))
 }
 
+/// Opens the Run key, creating it if needed: a fresh profile may not have one yet.
 fn with_run_key<T>(f: impl FnOnce(HKEY) -> Result<T>) -> Result<T> {
     let mut key = HKEY::default();
-    unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, None, KEY_SET_VALUE, &mut key) }
-        .ok()
-        .context("レジストリ (Run キー) を開けません")?;
+    unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            RUN_KEY,
+            None,
+            PCWSTR::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            None,
+            &mut key,
+            None,
+        )
+    }
+    .ok()
+    .context("レジストリ (Run キー) を開けません")?;
     let _close = std::mem::DropGuard::new(key, |k| unsafe {
         let _ = RegCloseKey(k);
     });

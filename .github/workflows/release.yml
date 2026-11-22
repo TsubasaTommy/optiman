@@ -36,6 +36,7 @@ jobs:
         with:
           path: .libjxl-cache
           key: libjxl-release-macos-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
+          restore-keys: libjxl-release-macos-${{ steps.libjxl.outputs.sha }}-
 
       - name: Install Rust
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
@@ -121,7 +122,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .libjxl-cache
-          key: libjxl-release-${{ matrix.target }}-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
+          # The same key as CI: the build is identical, so a tag build reuses main's cache.
+          key: libjxl-${{ runner.os }}-${{ runner.arch }}-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
+          restore-keys: libjxl-${{ runner.os }}-${{ runner.arch }}-${{ steps.libjxl.outputs.sha }}-
 
       - name: Install Rust
         shell: bash

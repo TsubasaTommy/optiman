@@ -51,7 +51,7 @@ pub fn system_dirs() -> Vec<PathBuf> {
 
 /// `fs::canonicalize` returns `\\?\C:\...`; strip the verbatim prefix for drive paths so
 /// paths stay readable and work with Shell APIs.
-pub fn normalize(p: PathBuf) -> PathBuf {
+fn normalize(p: PathBuf) -> PathBuf {
     let s = p.as_os_str().to_string_lossy();
     if let Some(rest) = s.strip_prefix(r"\\?\") {
         let b = rest.as_bytes();

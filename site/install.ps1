@@ -9,7 +9,7 @@ $ProgressPreference = "SilentlyContinue"
 $repo = "TsubasaTommy/optiman"
 $asset = "Optiman-Setup.exe"
 $base = "https://github.com/$repo/releases/latest/download"
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ("oif-" + [guid]::NewGuid())
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("optiman-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 try {

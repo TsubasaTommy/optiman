@@ -33,7 +33,7 @@ use windows::core::PCWSTR;
 
 use super::wide;
 use crate::APP_NAME;
-use crate::event::Msg;
+use crate::event::{Msg, Wait};
 
 const BUF_BYTES: usize = 64 * 1024;
 const MSG_KEY: usize = usize::MAX;
@@ -64,12 +64,6 @@ impl Notifier {
         }
         ok
     }
-}
-
-pub enum Wait {
-    Msg(Msg),
-    Timeout,
-    Closed,
 }
 
 struct Dir {
@@ -197,7 +191,7 @@ impl EventLoop {
     pub fn try_next(&mut self) -> Option<Msg> {
         match self.next(0) {
             Wait::Msg(m) => Some(m),
-            _ => None,
+            Wait::Timeout => None,
         }
     }
 
@@ -403,7 +397,7 @@ mod tests {
     #[test]
     fn control_pipe_delivers_stop() {
         let (mut ev, _n) = EventLoop::new().unwrap();
-        let config = std::env::temp_dir().join(format!("oif-pipe-test-{}.toml", std::process::id()));
+        let config = std::env::temp_dir().join(format!("optiman-pipe-test-{}.toml", std::process::id()));
         ev.listen_control(&config).unwrap();
         assert!(!request_stop(Path::new("C:\\some\\other\\config.toml")));
         assert!(request_stop(&config));

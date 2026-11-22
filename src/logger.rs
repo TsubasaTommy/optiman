@@ -3,7 +3,7 @@
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,48 +26,47 @@ impl Level {
     }
 }
 
-struct Sink {
-    file: Option<(PathBuf, File)>,
-    stderr: bool,
+enum Sink {
+    File(PathBuf, File),
+    Stderr,
 }
 
 static SINK: Mutex<Option<Sink>> = Mutex::new(None);
 
-/// Log to a file (rotated at 1 MiB, one backup kept). `also_stderr` mirrors output to stderr.
-pub fn init_file(path: PathBuf, also_stderr: bool) -> std::io::Result<()> {
+/// Log to a file (rotated at 1 MiB, one backup kept).
+pub fn init_file(path: PathBuf) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
-    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink { file: Some((path, file)), stderr: also_stderr });
+    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink::File(path, file));
     Ok(())
 }
 
 pub fn init_stderr() {
-    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink { file: None, stderr: true });
+    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink::Stderr);
 }
 
 pub fn log(level: Level, args: fmt::Arguments<'_>) {
     let line = format!("{} {} {}\n", timestamp(), level.as_str(), args);
     let mut guard = SINK.lock().unwrap_or_else(|e| e.into_inner());
     match guard.as_mut() {
-        None => eprint!("{line}"),
-        Some(sink) => {
-            if sink.stderr {
-                eprint!("{line}");
-            }
-            if let Some((path, file)) = sink.file.as_mut() {
-                if file.metadata().map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false) {
-                    let backup = path.with_extension("log.1");
-                    let _ = fs::rename(&*path, backup);
-                    if let Ok(f) = OpenOptions::new().create(true).append(true).open(&*path) {
-                        *file = f;
-                    }
+        None | Some(Sink::Stderr) => eprint!("{line}"),
+        Some(Sink::File(path, file)) => {
+            if file.metadata().map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false) {
+                let _ = fs::rename(&*path, backup_path(path));
+                if let Ok(f) = OpenOptions::new().create(true).append(true).open(&*path) {
+                    *file = f;
                 }
-                let _ = file.write_all(line.as_bytes());
             }
+            let _ = file.write_all(line.as_bytes());
         }
     }
+}
+
+/// The rotated-out previous log next to `log`.
+pub fn backup_path(log: &Path) -> PathBuf {
+    log.with_extension("log.1")
 }
 
 /// UTC timestamp `YYYY-MM-DDTHH:MM:SSZ` without pulling in a date crate.

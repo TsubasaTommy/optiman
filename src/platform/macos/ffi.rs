@@ -1,11 +1,10 @@
 //! Hand-written bindings for the small slices of CoreFoundation, ImageIO, CoreGraphics,
-//! CoreServices (FSEvents), libdispatch and the Objective-C runtime that we use.
+//! CoreServices (FSEvents) and libdispatch that we use.
 
-#![allow(non_upper_case_globals, non_snake_case, non_camel_case_types, dead_code)]
+#![allow(non_upper_case_globals, non_snake_case, non_camel_case_types)]
 
 use std::ffi::{CStr, c_char, c_int, c_void};
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub type CFTypeRef = *const c_void;
 pub type CFAllocatorRef = *const c_void;
@@ -16,7 +15,6 @@ pub type CFDataRef = *const c_void;
 pub type CFMutableDataRef = *mut c_void;
 pub type CFArrayRef = *const c_void;
 pub type CFNumberRef = *const c_void;
-pub type CFURLRef = *const c_void;
 pub type CFBooleanRef = *const c_void;
 pub type CFIndex = isize;
 pub type CFTypeID = usize;
@@ -26,7 +24,6 @@ pub type CGImageSourceRef = *mut c_void;
 pub type CGImageDestinationRef = *mut c_void;
 pub type CGImageRef = *mut c_void;
 pub type CGColorSpaceRef = *mut c_void;
-pub type CGContextRef = *mut c_void;
 
 #[repr(C)]
 pub struct CFDictionaryKeyCallBacks {
@@ -56,51 +53,22 @@ pub struct CFArrayCallBacks {
     equal: *const c_void,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CGPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CGSize {
-    pub width: f64,
-    pub height: f64,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct CGRect {
-    pub origin: CGPoint,
-    pub size: CGSize,
-}
-
 pub const kCFStringEncodingUTF8: u32 = 0x0800_0100;
 pub const kCFNumberSInt64Type: CFIndex = 4;
-pub const kCFNumberDoubleType: CFIndex = 13;
-
-// CGImageAlphaInfo / CGBitmapInfo
-pub const kCGImageAlphaNone: u32 = 0;
-pub const kCGImageAlphaPremultipliedLast: u32 = 1;
-pub const kCGImageAlphaNoneSkipLast: u32 = 5;
-pub const kCGImageAlphaNoneSkipFirst: u32 = 6;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     pub static kCFAllocatorDefault: CFAllocatorRef;
+    pub static kCFAllocatorNull: CFAllocatorRef;
     pub static kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
     pub static kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
     pub static kCFTypeArrayCallBacks: CFArrayCallBacks;
     pub static kCFBooleanTrue: CFBooleanRef;
-    pub static kCFBooleanFalse: CFBooleanRef;
 
     pub fn CFRelease(cf: CFTypeRef);
     pub fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> Boolean;
     pub fn CFGetTypeID(cf: CFTypeRef) -> CFTypeID;
     pub fn CFStringGetTypeID() -> CFTypeID;
-    pub fn CFDictionaryGetTypeID() -> CFTypeID;
     pub fn CFNumberGetTypeID() -> CFTypeID;
 
     pub fn CFStringCreateWithBytes(
@@ -115,6 +83,12 @@ unsafe extern "C" {
     pub fn CFStringGetCString(s: CFStringRef, buffer: *mut c_char, size: CFIndex, encoding: u32) -> Boolean;
 
     pub fn CFDataCreate(alloc: CFAllocatorRef, bytes: *const u8, length: CFIndex) -> CFDataRef;
+    pub fn CFDataCreateWithBytesNoCopy(
+        alloc: CFAllocatorRef,
+        bytes: *const u8,
+        length: CFIndex,
+        bytes_deallocator: CFAllocatorRef,
+    ) -> CFDataRef;
     pub fn CFDataCreateMutable(alloc: CFAllocatorRef, capacity: CFIndex) -> CFMutableDataRef;
     pub fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
     pub fn CFDataGetLength(data: CFDataRef) -> CFIndex;
@@ -125,16 +99,9 @@ unsafe extern "C" {
         key_callbacks: *const CFDictionaryKeyCallBacks,
         value_callbacks: *const CFDictionaryValueCallBacks,
     ) -> CFMutableDictionaryRef;
-    pub fn CFDictionaryCreateMutableCopy(
-        alloc: CFAllocatorRef,
-        capacity: CFIndex,
-        dict: CFDictionaryRef,
-    ) -> CFMutableDictionaryRef;
     pub fn CFDictionaryGetValue(dict: CFDictionaryRef, key: *const c_void) -> *const c_void;
     pub fn CFDictionarySetValue(dict: CFMutableDictionaryRef, key: *const c_void, value: *const c_void);
-    pub fn CFDictionaryRemoveValue(dict: CFMutableDictionaryRef, key: *const c_void);
 
-    pub fn CFNumberCreate(alloc: CFAllocatorRef, the_type: CFIndex, value_ptr: *const c_void) -> CFNumberRef;
     pub fn CFNumberGetValue(number: CFNumberRef, the_type: CFIndex, value_ptr: *mut c_void) -> Boolean;
 
     pub fn CFArrayCreate(
@@ -145,28 +112,12 @@ unsafe extern "C" {
     ) -> CFArrayRef;
     pub fn CFArrayGetCount(array: CFArrayRef) -> CFIndex;
     pub fn CFArrayGetValueAtIndex(array: CFArrayRef, idx: CFIndex) -> *const c_void;
-
-    pub fn CFURLCreateFromFileSystemRepresentation(
-        alloc: CFAllocatorRef,
-        buffer: *const u8,
-        buf_len: CFIndex,
-        is_directory: Boolean,
-    ) -> CFURLRef;
 }
 
 #[link(name = "ImageIO", kind = "framework")]
 unsafe extern "C" {
     pub static kCGImagePropertyOrientation: CFStringRef;
-    pub static kCGImagePropertyPixelWidth: CFStringRef;
-    pub static kCGImagePropertyPixelHeight: CFStringRef;
-    pub static kCGImagePropertyTIFFDictionary: CFStringRef;
-    pub static kCGImagePropertyTIFFOrientation: CFStringRef;
-    pub static kCGImageSourceShouldCache: CFStringRef;
     pub static kCGImageSourceShouldCacheImmediately: CFStringRef;
-    pub static kCGImageSourceCreateThumbnailFromImageAlways: CFStringRef;
-    pub static kCGImageSourceCreateThumbnailWithTransform: CFStringRef;
-    pub static kCGImageSourceThumbnailMaxPixelSize: CFStringRef;
-    pub static kCGImageDestinationLossyCompressionQuality: CFStringRef;
 
     pub fn CGImageSourceCreateWithData(data: CFDataRef, options: CFDictionaryRef) -> CGImageSourceRef;
     pub fn CGImageSourceGetStatus(src: CGImageSourceRef) -> i32;
@@ -178,14 +129,8 @@ unsafe extern "C" {
     ) -> CFDictionaryRef;
     pub fn CGImageSourceCreateImageAtIndex(src: CGImageSourceRef, index: usize, options: CFDictionaryRef)
     -> CGImageRef;
-    pub fn CGImageSourceCreateThumbnailAtIndex(
-        src: CGImageSourceRef,
-        index: usize,
-        options: CFDictionaryRef,
-    ) -> CGImageRef;
     pub fn CGImageSourceCopyTypeIdentifiers() -> CFArrayRef;
 
-    pub fn CGImageDestinationCopyTypeIdentifiers() -> CFArrayRef;
     pub fn CGImageDestinationCreateWithData(
         data: CFMutableDataRef,
         type_: CFStringRef,
@@ -204,7 +149,6 @@ unsafe extern "C" {
     pub fn CGImageGetWidth(image: CGImageRef) -> usize;
     pub fn CGImageGetHeight(image: CGImageRef) -> usize;
     pub fn CGImageGetColorSpace(image: CGImageRef) -> CGColorSpaceRef;
-    pub fn CGImageGetAlphaInfo(image: CGImageRef) -> u32;
     pub fn CGImageGetBitmapInfo(image: CGImageRef) -> u32;
     pub fn CGImageGetBitsPerComponent(image: CGImageRef) -> usize;
     pub fn CGImageGetBitsPerPixel(image: CGImageRef) -> usize;
@@ -212,9 +156,7 @@ unsafe extern "C" {
     pub fn CGImageGetDataProvider(image: CGImageRef) -> *mut c_void;
     pub fn CGDataProviderCopyData(provider: *mut c_void) -> CFDataRef;
     pub fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
-    pub fn CGColorSpaceIsWideGamutRGB(space: CGColorSpaceRef) -> bool;
     pub fn CGColorSpaceGetModel(space: CGColorSpaceRef) -> i32;
-    pub fn CGColorSpaceGetBaseColorSpace(space: CGColorSpaceRef) -> CGColorSpaceRef;
     pub fn CGColorSpaceCopyName(space: CGColorSpaceRef) -> CFStringRef;
     pub fn CGColorSpaceCopyICCData(space: CGColorSpaceRef) -> CFDataRef;
     pub fn CGColorSpaceCreateWithICCData(data: CFTypeRef) -> CGColorSpaceRef;
@@ -232,16 +174,6 @@ unsafe extern "C" {
         should_interpolate: bool,
         intent: i32,
     ) -> CGImageRef;
-    pub fn CGBitmapContextCreate(
-        data: *mut c_void,
-        width: usize,
-        height: usize,
-        bits_per_component: usize,
-        bytes_per_row: usize,
-        space: CGColorSpaceRef,
-        bitmap_info: u32,
-    ) -> CGContextRef;
-    pub fn CGContextDrawImage(ctx: CGContextRef, rect: CGRect, image: CGImageRef);
 }
 
 // ---- CoreServices: FSEvents ----
@@ -323,20 +255,6 @@ unsafe extern "C" {
     pub fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
 }
 
-// ---- Objective-C runtime (for NSFileManager trash) ----
-
-#[link(name = "objc")]
-unsafe extern "C" {
-    pub fn objc_getClass(name: *const c_char) -> *mut c_void;
-    pub fn sel_registerName(name: *const c_char) -> *mut c_void;
-    pub fn objc_msgSend();
-    pub fn objc_autoreleasePoolPush() -> *mut c_void;
-    pub fn objc_autoreleasePoolPop(pool: *mut c_void);
-}
-
-#[link(name = "Foundation", kind = "framework")]
-unsafe extern "C" {}
-
 // ---- Safe-ish helpers ----
 
 /// An owned (+1) CoreFoundation reference, released on drop.
@@ -380,6 +298,36 @@ pub fn cf_data(bytes: &[u8]) -> Cf {
     }
 }
 
+/// A CFData that reads `bytes` in place instead of copying them.
+///
+/// # Safety
+/// `bytes` must outlive the returned CFData and every CF object created from it.
+pub unsafe fn cf_data_borrowed(bytes: &[u8]) -> Cf {
+    unsafe {
+        Cf::from_create(CFDataCreateWithBytesNoCopy(
+            kCFAllocatorDefault,
+            bytes.as_ptr(),
+            bytes.len() as CFIndex,
+            kCFAllocatorNull,
+        ))
+        .expect("CFDataCreateWithBytesNoCopy failed")
+    }
+}
+
+/// A CFArray of the paths as CFStrings (FSEvents takes paths in this form).
+pub fn cf_path_array(paths: &[PathBuf]) -> Option<Cf> {
+    let strings: Vec<Cf> = paths.iter().map(|p| cf_string(&p.to_string_lossy())).collect();
+    let ptrs: Vec<*const c_void> = strings.iter().map(Cf::ptr).collect();
+    unsafe {
+        Cf::from_create(CFArrayCreate(
+            kCFAllocatorDefault,
+            ptrs.as_ptr(),
+            ptrs.len() as CFIndex,
+            &kCFTypeArrayCallBacks,
+        ))
+    }
+}
+
 /// # Safety
 /// `data` must be a valid CFData reference that outlives the returned slice.
 pub unsafe fn cf_data_bytes<'a>(data: CFDataRef) -> &'a [u8] {
@@ -389,32 +337,6 @@ pub unsafe fn cf_data_bytes<'a>(data: CFDataRef) -> &'a [u8] {
             return &[];
         }
         std::slice::from_raw_parts(CFDataGetBytePtr(data), len)
-    }
-}
-
-pub fn cf_i64(v: i64) -> Cf {
-    unsafe {
-        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, (&raw const v).cast::<c_void>()))
-            .expect("CFNumberCreate failed")
-    }
-}
-
-pub fn cf_f64(v: f64) -> Cf {
-    unsafe {
-        Cf::from_create(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, (&raw const v).cast::<c_void>()))
-            .expect("CFNumberCreate failed")
-    }
-}
-
-pub fn cf_url(path: &Path) -> Option<Cf> {
-    let bytes = path.as_os_str().as_bytes();
-    unsafe {
-        Cf::from_create(CFURLCreateFromFileSystemRepresentation(
-            kCFAllocatorDefault,
-            bytes.as_ptr(),
-            bytes.len() as CFIndex,
-            Boolean::from(path.is_dir()),
-        ))
     }
 }
 

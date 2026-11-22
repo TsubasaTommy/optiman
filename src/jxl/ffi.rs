@@ -2,7 +2,7 @@
 //! the encoder, JPEG reconstruction in the decoder, and the thread-pool runner.
 //! Layouts follow `third_party/libjxl/lib/include/jxl/*.h`.
 
-#![allow(non_camel_case_types, non_snake_case, dead_code)]
+#![allow(non_camel_case_types, non_snake_case)]
 
 use std::ffi::c_void;
 
@@ -25,27 +25,19 @@ pub struct JxlDecoder {
 
 // JxlEncoderStatus
 pub const JXL_ENC_SUCCESS: i32 = 0;
-pub const JXL_ENC_ERROR: i32 = 1;
 pub const JXL_ENC_NEED_MORE_OUTPUT: i32 = 2;
 // JxlEncoderError
-pub const JXL_ENC_ERR_OK: i32 = 0;
-pub const JXL_ENC_ERR_GENERIC: i32 = 1;
 pub const JXL_ENC_ERR_OOM: i32 = 2;
 pub const JXL_ENC_ERR_JBRD: i32 = 3;
 pub const JXL_ENC_ERR_BAD_INPUT: i32 = 4;
 pub const JXL_ENC_ERR_NOT_SUPPORTED: i32 = 0x80;
-pub const JXL_ENC_ERR_API_USAGE: i32 = 0x81;
 // JxlEncoderFrameSettingId
 pub const JXL_ENC_FRAME_SETTING_EFFORT: i32 = 0;
-pub const JXL_ENC_FRAME_SETTING_BROTLI_EFFORT: i32 = 32;
 
 // JxlDecoderStatus
 pub const JXL_DEC_SUCCESS: i32 = 0;
-pub const JXL_DEC_ERROR: i32 = 1;
-pub const JXL_DEC_NEED_MORE_INPUT: i32 = 2;
 pub const JXL_DEC_NEED_IMAGE_OUT_BUFFER: i32 = 5;
 pub const JXL_DEC_JPEG_NEED_MORE_OUTPUT: i32 = 6;
-pub const JXL_DEC_BASIC_INFO: i32 = 0x40;
 pub const JXL_DEC_FULL_IMAGE: i32 = 0x1000;
 pub const JXL_DEC_JPEG_RECONSTRUCTION: i32 = 0x2000;
 

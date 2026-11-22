@@ -7,8 +7,9 @@
 //!   depth and alpha mode (the codestream orientation replaces pixel rotation). Only when the user
 //!   opts in (`EncodeOptions::quality`) are they encoded lossily (VarDCT; alpha stays lossless).
 
-pub mod ffi;
+mod ffi;
 
+use std::borrow::Cow;
 use std::ffi::c_void;
 use std::fmt;
 
@@ -53,8 +54,8 @@ pub struct EncodeOptions {
 }
 
 /// Limits for a lossy result against its source. They catch broken output (garbage, a wrong
-/// colour space or channel order), not quality differences: real 4K photos measured 36.6-44.7 dB
-/// at quality 60-95, and synthetic hard-edged test images, the worst case, 22 dB at quality 60.
+/// colour space or channel order), not quality differences: real 4K photos measure 36-45 dB at
+/// the offered levels, and synthetic hard-edged test images, the worst case, about 22 dB.
 pub const LOSSY_MIN_PSNR: f64 = 20.0;
 /// Largest allowed shift of a channel's mean (fraction of full scale). Lossy coding keeps means
 /// within 0.8% even on the worst-case test images; colour-space mix-ups move them much more.
@@ -174,25 +175,30 @@ pub fn transcode_jpeg(jpeg: &[u8], o: &EncodeOptions) -> Result<Vec<u8>, EncodeE
     drain_output(&enc)
 }
 
-/// Repacks RGBA samples into the channel layout that is actually needed (G, GA, RGB or RGBA).
-fn pack_channels(img: &SourceImage, alpha: bool) -> (Vec<u8>, u32) {
-    let bps = img.bytes_per_sample();
-    let keep: &[usize] = match (img.gray, alpha) {
+/// The channels that are actually encoded (G, GA, RGB or RGBA), as indices into an RGBA pixel.
+fn channel_map(gray: bool, alpha: bool) -> &'static [usize] {
+    match (gray, alpha) {
         (true, false) => &[0],
         (true, true) => &[0, 3],
         (false, false) => &[0, 1, 2],
         (false, true) => &[0, 1, 2, 3],
-    };
-    if keep.len() == 4 {
-        return (img.pixels.clone(), 4);
     }
+}
+
+/// The source samples in the layout handed to libjxl; borrowed when all four channels are kept.
+fn pack_channels(img: &SourceImage, alpha: bool) -> (Cow<'_, [u8]>, u32) {
+    let keep = channel_map(img.gray, alpha);
+    if keep.len() == 4 {
+        return (Cow::Borrowed(&img.pixels), 4);
+    }
+    let bps = img.bytes_per_sample();
     let mut out = Vec::with_capacity(img.width as usize * img.height as usize * keep.len() * bps);
     for px in img.pixels.chunks_exact(4 * bps) {
         for &c in keep {
             out.extend_from_slice(&px[c * bps..(c + 1) * bps]);
         }
     }
-    (out, keep.len() as u32)
+    (Cow::Owned(out), keep.len() as u32)
 }
 
 /// Encodes decoded pixels: lossless modular in their original colour space, or lossy VarDCT when
@@ -302,7 +308,6 @@ pub fn reconstruct_jpeg(jxl: &[u8]) -> Result<Option<Vec<u8>>, String> {
         }
         ffi::JxlDecoderSetInput(dec.0, jxl.as_ptr(), jxl.len());
         ffi::JxlDecoderCloseInput(dec.0);
-        let mut used = 0usize;
         loop {
             match ffi::JxlDecoderProcessInput(dec.0) {
                 ffi::JXL_DEC_JPEG_RECONSTRUCTION => {
@@ -310,7 +315,7 @@ pub fn reconstruct_jpeg(jxl: &[u8]) -> Result<Option<Vec<u8>>, String> {
                     ffi::JxlDecoderSetJPEGBuffer(dec.0, out.as_mut_ptr(), out.len());
                 }
                 ffi::JXL_DEC_JPEG_NEED_MORE_OUTPUT => {
-                    used = out.len() - ffi::JxlDecoderReleaseJPEGBuffer(dec.0);
+                    let used = out.len() - ffi::JxlDecoderReleaseJPEGBuffer(dec.0);
                     out.resize(out.len() * 2, 0);
                     ffi::JxlDecoderSetJPEGBuffer(dec.0, out.as_mut_ptr().add(used), out.len() - used);
                 }
@@ -320,13 +325,12 @@ pub fn reconstruct_jpeg(jxl: &[u8]) -> Result<Option<Vec<u8>>, String> {
                     if !is_jpeg {
                         return Ok(None);
                     }
-                    used = out.len() - ffi::JxlDecoderReleaseJPEGBuffer(dec.0);
+                    let used = out.len() - ffi::JxlDecoderReleaseJPEGBuffer(dec.0);
                     out.truncate(used);
                     return Ok(Some(out));
                 }
                 status => return Err(format!("JPEG の復元に失敗 (status {status})")),
             }
-            let _ = used;
         }
     }
 }
@@ -409,8 +413,40 @@ pub fn decode_exact(data: &[u8], gray: bool, alpha: bool) -> Result<Decoded, Str
     Ok(Decoded { width: geometry.0 as u32, height: geometry.1 as u32, bits, orientation, channels, pixels, icc })
 }
 
-/// Checks a lossless encode: the decoded samples must equal the source samples exactly.
-pub fn verify_lossless(jxl: &[u8], img: &SourceImage) -> Result<(), String> {
+/// When a lossy result is larger than this share of the source, lossless is tried as well:
+/// screenshots and graphics often come out about as small lossless (and exact).
+const LOSSY_RECHECK_SHARE: f64 = 0.5;
+
+/// Lossy is kept only when it beats lossless by at least 10%; less is not worth the lost quality.
+fn lossy_worth_it(lossy: usize, lossless: usize) -> bool {
+    lossy * 10 < lossless * 9
+}
+
+/// Encodes as asked, except that a lossy result that barely helps is replaced by the lossless
+/// one. Photos shrink far below [`LOSSY_RECHECK_SHARE`] and never pay for a second encode.
+/// Returns the bytes and whether they are lossy.
+pub fn encode_best(
+    img: &SourceImage,
+    meta: &Metadata,
+    o: &EncodeOptions,
+    source_len: u64,
+) -> Result<(Vec<u8>, bool), EncodeError> {
+    let first = encode_pixels(img, meta, o)?;
+    if o.quality.is_none() || (first.len() as f64) <= source_len as f64 * LOSSY_RECHECK_SHARE {
+        return Ok((first, o.quality.is_some()));
+    }
+    let exact = encode_pixels(img, meta, &EncodeOptions { quality: None, ..*o })?;
+    Ok(if lossy_worth_it(first.len(), exact.len()) { (first, true) } else { (exact, false) })
+}
+
+/// Checks an [`encode_best`] result the way its mode requires.
+pub fn verify(jxl: &[u8], img: &SourceImage, lossy: bool) -> Result<(), String> {
+    if lossy { verify_lossy(jxl, img).map(|_| ()) } else { verify_lossless(jxl, img) }
+}
+
+/// Decodes `jxl` in the source's channel layout and checks size and orientation. Returns the
+/// decoded image and the source's channels as RGBA indices.
+fn decode_like(jxl: &[u8], img: &SourceImage) -> Result<(Decoded, &'static [usize]), String> {
     let alpha = img.alpha_used();
     let decoded = decode_exact(jxl, img.gray, alpha)?;
     if (decoded.width, decoded.height) != (img.width, img.height) {
@@ -419,12 +455,28 @@ pub fn verify_lossless(jxl: &[u8], img: &SourceImage) -> Result<(), String> {
     if decoded.orientation != img.orientation {
         return Err(format!("向きが一致しません: {}", decoded.orientation));
     }
-    let (expected, _) = pack_channels(img, alpha);
-    if decoded.pixels != expected {
-        let first = decoded.pixels.iter().zip(&expected).position(|(a, b)| a != b).unwrap_or(0);
-        return Err(format!("画素が一致しません (最初の差: バイト {first})"));
+    let keep = channel_map(img.gray, alpha);
+    let expected = img.width as usize * img.height as usize * keep.len() * img.bytes_per_sample();
+    if decoded.pixels.len() != expected {
+        return Err(format!("画素数が一致しません ({} / {expected} バイト)", decoded.pixels.len()));
     }
-    Ok(())
+    Ok((decoded, keep))
+}
+
+/// The source's samples in the decoded layout, read straight from its RGBA pixels.
+fn source_samples<'a>(img: &'a SourceImage, keep: &'static [usize]) -> impl Iterator<Item = &'a [u8]> {
+    let bps = img.bytes_per_sample();
+    img.pixels.chunks_exact(4 * bps).flat_map(move |px| keep.iter().map(move |&c| &px[c * bps..(c + 1) * bps]))
+}
+
+/// Checks a lossless encode: the decoded samples must equal the source samples exactly.
+pub fn verify_lossless(jxl: &[u8], img: &SourceImage) -> Result<(), String> {
+    let (decoded, keep) = decode_like(jxl, img)?;
+    let bps = img.bytes_per_sample();
+    match decoded.pixels.chunks_exact(bps).zip(source_samples(img, keep)).position(|(a, b)| a != b) {
+        None => Ok(()),
+        Some(i) => Err(format!("画素が一致しません (最初の差: バイト {})", i * bps)),
+    }
 }
 
 /// Checks a lossy encode: same size and orientation, decoded samples close to the source (PSNR at
@@ -432,19 +484,8 @@ pub fn verify_lossless(jxl: &[u8], img: &SourceImage) -> Result<(), String> {
 /// under fully transparent pixels are not stored by a lossy encode and are not compared.
 /// Returns the PSNR in dB.
 pub fn verify_lossy(jxl: &[u8], img: &SourceImage) -> Result<f64, String> {
-    let alpha = img.alpha_used();
-    let decoded = decode_exact(jxl, img.gray, alpha)?;
-    if (decoded.width, decoded.height) != (img.width, img.height) {
-        return Err(format!("サイズが一致しません: {}x{}", decoded.width, decoded.height));
-    }
-    if decoded.orientation != img.orientation {
-        return Err(format!("向きが一致しません: {}", decoded.orientation));
-    }
-    let (expected, _) = pack_channels(img, alpha);
-    if decoded.pixels.len() != expected.len() {
-        return Err(format!("画素数が一致しません ({} / {} バイト)", decoded.pixels.len(), expected.len()));
-    }
-    let d = compare(&decoded.pixels, &expected, img.sample_bits == 16, decoded.channels as usize, alpha);
+    let (decoded, keep) = decode_like(jxl, img)?;
+    let d = compare(&decoded.pixels, &img.pixels, keep, img.bytes_per_sample());
     if d.psnr < LOSSY_MIN_PSNR {
         return Err(format!("元の画像と大きく異なります (PSNR {:.1} dB)", d.psnr));
     }
@@ -463,22 +504,22 @@ struct Difference {
     mean_shift: f64,
 }
 
-/// Compares two equally laid out interleaved buffers (u8, or native u16) with `channels` samples
-/// per pixel. With `alpha` (the last channel), only alpha is compared where the source pixel is
-/// fully transparent.
-fn compare(a: &[u8], b: &[u8], wide: bool, channels: usize, alpha: bool) -> Difference {
-    let bytes = if wide { 2 } else { 1 };
-    let peak: f64 = if wide { 65535.0 } else { 255.0 };
-    let sample = |px: &[u8], c: usize| -> f64 {
-        if wide { f64::from(u16::from_ne_bytes([px[2 * c], px[2 * c + 1]])) } else { f64::from(px[c]) }
+/// Compares decoded samples (channels `keep`, interleaved) with RGBA source pixels; samples are
+/// `bps` bytes (u8, or native u16). With alpha kept, only alpha is compared where the source
+/// pixel is fully transparent.
+fn compare(decoded: &[u8], source: &[u8], keep: &[usize], bps: usize) -> Difference {
+    let peak: f64 = if bps == 2 { 65535.0 } else { 255.0 };
+    let value = |px: &[u8], c: usize| -> f64 {
+        if bps == 2 { f64::from(u16::from_ne_bytes([px[2 * c], px[2 * c + 1]])) } else { f64::from(px[c]) }
     };
+    let alpha = keep.last() == Some(&3);
     let (mut squared, mut count) = (0f64, 0usize);
-    let mut sums = vec![(0f64, 0f64, 0usize); channels]; // per channel: Σa, Σb, n
-    for (pa, pb) in a.chunks_exact(channels * bytes).zip(b.chunks_exact(channels * bytes)) {
-        let visible = !alpha || sample(pb, channels - 1) > 0.0;
-        for (c, sum) in sums.iter_mut().enumerate() {
-            if visible || c == channels - 1 {
-                let (x, y) = (sample(pa, c), sample(pb, c));
+    let mut sums = vec![(0f64, 0f64, 0usize); keep.len()]; // per channel: Σdecoded, Σsource, n
+    for (pd, ps) in decoded.chunks_exact(keep.len() * bps).zip(source.chunks_exact(4 * bps)) {
+        let visible = !alpha || value(ps, 3) > 0.0;
+        for (slot, (&c, sum)) in keep.iter().zip(sums.iter_mut()).enumerate() {
+            if visible || c == 3 {
+                let (x, y) = (value(pd, slot), value(ps, c));
                 squared += (x - y) * (x - y);
                 count += 1;
                 *sum = (sum.0 + x, sum.1 + y, sum.2 + 1);
@@ -648,14 +689,22 @@ mod tests {
 
     #[test]
     fn psnr_of_known_buffers() {
-        let psnr = |a: &[u8], b: &[u8], ch, alpha| compare(a, b, false, ch, alpha).psnr;
-        assert_eq!(psnr(&[10, 20], &[10, 20], 1, false), f64::INFINITY);
+        // Sources are RGBA; `keep` picks the decoded channels (gray here, gray+alpha below).
+        let psnr = |d: &[u8], s: &[u8], keep: &[usize]| compare(d, s, keep, 1).psnr;
+        assert_eq!(psnr(&[10, 20], &[10, 0, 0, 255, 20, 0, 0, 255], &[0]), f64::INFINITY);
         // One sample off by 255 out of two: MSE = 255² / 2 → 10·log10(2) dB.
-        assert!((psnr(&[0, 7], &[255, 7], 1, false) - 10.0 * 2f64.log10()).abs() < 1e-9);
-        // Gray+alpha: the colour of a fully transparent pixel is ignored, its alpha is not.
-        assert_eq!(psnr(&[200, 0, 50, 255], &[0, 0, 50, 255], 2, true), f64::INFINITY);
-        assert!(psnr(&[0, 9, 50, 255], &[0, 0, 50, 255], 2, true).is_finite());
+        assert!((psnr(&[0, 7], &[255, 0, 0, 255, 7, 0, 0, 255], &[0]) - 10.0 * 2f64.log10()).abs() < 1e-9);
+        // The colour of a fully transparent pixel is ignored, its alpha is not.
+        assert_eq!(psnr(&[200, 0, 50, 255], &[0, 0, 0, 0, 50, 0, 0, 255], &[0, 3]), f64::INFINITY);
+        assert!(psnr(&[0, 9, 50, 255], &[0, 0, 0, 0, 50, 0, 0, 255], &[0, 3]).is_finite());
         // Mean shift: 51 out of 255 on the only channel = 20%.
-        assert!((compare(&[51, 51], &[0, 0], false, 1, false).mean_shift - 0.2).abs() < 1e-9);
+        assert!((compare(&[51, 51], &[0, 0, 0, 255, 0, 0, 0, 255], &[0], 1).mean_shift - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lossy_must_beat_lossless_by_ten_percent() {
+        assert!(lossy_worth_it(89, 100));
+        assert!(!lossy_worth_it(90, 100));
+        assert!(!lossy_worth_it(120, 100));
     }
 }

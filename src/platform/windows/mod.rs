@@ -14,25 +14,12 @@ use std::os::windows::ffi::OsStrExt;
 
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize};
 
-/// COM initialisation for the current thread (WIC, IFileOperation).
-pub struct ThreadInit {
+/// COM for the current thread (WIC, IFileOperation, dialogs); uninitialised when the thread ends.
+struct ComGuard {
     initialized: bool,
 }
 
-impl ThreadInit {
-    pub fn new() -> ThreadInit {
-        let hr = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
-        ThreadInit { initialized: hr.is_ok() }
-    }
-}
-
-impl Default for ThreadInit {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for ThreadInit {
+impl Drop for ComGuard {
     fn drop(&mut self) {
         if self.initialized {
             unsafe { CoUninitialize() };
@@ -41,10 +28,12 @@ impl Drop for ThreadInit {
 }
 
 thread_local! {
-    static COM: ThreadInit = ThreadInit::new();
+    static COM: ComGuard = ComGuard {
+        initialized: unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) }.is_ok(),
+    };
 }
 
-/// Lazily initialise COM on whatever thread calls into WIC/Shell (also covers test threads).
+/// Initialises COM on whatever thread calls into WIC/Shell, once per thread.
 pub(crate) fn ensure_com() {
     COM.with(|_| ());
 }

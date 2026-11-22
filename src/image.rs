@@ -39,11 +39,6 @@ impl SourceImage {
         self.width as usize * 4 * self.bytes_per_sample()
     }
 
-    /// Display size after applying the orientation.
-    pub fn display_size(&self) -> (u32, u32) {
-        if (5..=8).contains(&self.orientation) { (self.height, self.width) } else { (self.width, self.height) }
-    }
-
     /// True if any pixel is not fully opaque (for sources that declare alpha but do not use it).
     pub fn alpha_used(&self) -> bool {
         if !self.has_alpha {

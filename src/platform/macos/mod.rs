@@ -10,18 +10,3 @@ pub mod power;
 pub mod ui;
 pub mod watch;
 mod xpc;
-
-/// Per-thread OS initialisation (nothing needed on macOS).
-pub struct ThreadInit;
-
-impl ThreadInit {
-    pub fn new() -> ThreadInit {
-        ThreadInit
-    }
-}
-
-impl Default for ThreadInit {
-    fn default() -> Self {
-        Self::new()
-    }
-}

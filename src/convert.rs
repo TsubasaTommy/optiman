@@ -6,10 +6,11 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::mem::DropGuard;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::config::{Config, OriginalPolicy};
+use crate::config::{Config, OriginalPolicy, Quality};
 use crate::filter::TEMP_SUFFIX;
 use crate::jxl::{self, EncodeError, EncodeOptions};
 use crate::metadata::{self, Container};
@@ -22,8 +23,8 @@ pub const OUTPUT_EXTENSION: &str = "jxl";
 #[derive(Debug, Clone)]
 pub struct ConvertCtx {
     pub effort: u8,
-    /// `Some(quality)`: encode non-JPEG sources lossily. JPEG is always lossless.
-    pub quality: Option<u8>,
+    /// Quality for non-JPEG sources. JPEG is always recompressed losslessly.
+    pub quality: Quality,
     pub threads: usize,
     pub original: OriginalPolicy,
     pub skip_if_larger: bool,
@@ -39,7 +40,7 @@ impl ConvertCtx {
     pub fn new(cfg: &Config) -> ConvertCtx {
         ConvertCtx {
             effort: cfg.effort,
-            quality: cfg.quality.jxl_quality(),
+            quality: cfg.quality,
             threads: default_threads(),
             original: cfg.original,
             skip_if_larger: cfg.skip_if_larger,
@@ -48,14 +49,16 @@ impl ConvertCtx {
     }
 
     fn options(&self) -> EncodeOptions {
-        EncodeOptions { effort: self.effort, threads: self.threads, quality: self.quality }
+        EncodeOptions { effort: self.effort, threads: self.threads, quality: self.quality.jxl_quality() }
     }
 }
 
-/// Identifies the exact version of a file that was skipped, so it is retried only if it changes.
+/// One version of a file (size and modification time): what settled, what was converted, what
+/// was skipped. A file whose fingerprint changed is treated as new.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fingerprint {
     pub size: u64,
+    /// Modification time in nanoseconds since the Unix epoch.
     pub mtime_ns: i128,
 }
 
@@ -179,10 +182,6 @@ fn choose_output(src: &Path, src_mtime: SystemTime, keep_mode: bool) -> Option<T
     None
 }
 
-fn same_file_state(a: &fs::Metadata, b: &fs::Metadata) -> bool {
-    a.len() == b.len() && a.modified().ok() == b.modified().ok()
-}
-
 /// Encodes in memory and verifies the result (lossless, or close in lossy mode). Returns the bytes.
 fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<Vec<u8>, Outcome> {
     let size = data.len() as u64;
@@ -205,10 +204,18 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
         }
     };
 
+    let container = metadata::sniff(&data);
+    match container {
+        Container::Heif => return Err(Outcome::skipped("HEIC/HEIF は対象外です (非可逆形式)", fp)),
+        Container::WebP if !metadata::webp_is_lossless(&data) => {
+            return Err(Outcome::skipped("非可逆 WebP は対象外です", fp));
+        }
+        _ => {}
+    }
     if let Some(reason) = metadata::lossy_extras(&data) {
         return Err(Outcome::skipped(reason, fp));
     }
-    match metadata::sniff(&data) {
+    match container {
         Container::Jpeg => {
             let jxl = jxl::transcode_jpeg(&data, &ctx.options()).map_err(encode_err)?;
             if let Some(skip) = too_big(&jxl) {
@@ -217,8 +224,6 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             jxl::verify_jpeg(&jxl, &data).map_err(verify_err(false))?;
             Ok(jxl)
         }
-        Container::Heif => Err(Outcome::skipped("HEIC/HEIF は対象外です (非可逆形式)", fp)),
-        Container::WebP if !metadata::webp_is_lossless(&data) => Err(Outcome::skipped("非可逆 WebP は対象外です", fp)),
         _ => {
             let meta = jxl::Metadata {
                 exif: metadata::extract_exif(&data).map(|mut e| {
@@ -230,30 +235,23 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             };
             let img: SourceImage = platform::image::decode(&data).map_err(encode_err)?;
             drop(data);
-            let mut jxl = jxl::encode_pixels(&img, &meta, &ctx.options()).map_err(encode_err)?;
-            let mut lossy = ctx.quality.is_some();
-            if lossy && jxl.len() as u64 * 2 > size {
-                // Lossy barely helped: screenshots and graphics are often about as small lossless
-                // (and exact). Losing quality must save at least 10% over lossless to be worth it.
-                // Photos shrink far below half and never pay for this second encode.
-                let lossless = EncodeOptions { quality: None, ..ctx.options() };
-                let exact = jxl::encode_pixels(&img, &meta, &lossless).map_err(encode_err)?;
-                if jxl.len() * 10 >= exact.len() * 9 {
-                    jxl = exact;
-                    lossy = false;
-                }
-            }
+            let (jxl, lossy) = jxl::encode_best(&img, &meta, &ctx.options(), size).map_err(encode_err)?;
             if let Some(skip) = too_big(&jxl) {
                 return Err(skip);
             }
-            if lossy {
-                jxl::verify_lossy(&jxl, &img).map_err(verify_err(true))?;
-            } else {
-                jxl::verify_lossless(&jxl, &img).map_err(verify_err(false))?;
-            }
+            jxl::verify(&jxl, &img, lossy).map_err(verify_err(lossy))?;
             Ok(jxl)
         }
     }
+}
+
+/// [`convert_file`], with a panic (a decoder or encoder bug) reported as this file's failure
+/// instead of ending the whole run.
+pub fn convert_guarded(ctx: &ConvertCtx, path: &Path) -> Outcome {
+    catch_unwind(AssertUnwindSafe(|| convert_file(ctx, path))).unwrap_or_else(|_| Outcome::Failed {
+        reason: "内部エラー (panic)".into(),
+        remember: Fingerprint::of_path(path),
+    })
 }
 
 pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
@@ -281,7 +279,7 @@ pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
         Err(e) => return Outcome::failed(format!("読み込めません: {e}")),
     };
     match fs::symlink_metadata(path) {
-        Ok(now) if same_file_state(&md, &now) => {}
+        Ok(now) if Fingerprint::of(&now) == fp => {}
         _ => return Outcome::Requeue("読み込み中に変更されました".into()),
     }
     let encoded = match encode_verified(ctx, data, fp) {
@@ -313,7 +311,7 @@ pub fn convert_file(ctx: &ConvertCtx, path: &Path) -> Outcome {
 
     // The source must be exactly what we encoded before we touch it.
     match fs::symlink_metadata(path) {
-        Ok(now) if same_file_state(&md, &now) => {}
+        Ok(now) if Fingerprint::of(&now) == fp => {}
         _ => {
             let _ = fs::remove_file(&target);
             return Outcome::Requeue("変換中に元ファイルが変更されました".into());

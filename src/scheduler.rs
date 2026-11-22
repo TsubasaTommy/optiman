@@ -1,35 +1,27 @@
 //! Debounce + on-demand worker pool.
 //!
 //! The scheduler is pure logic driven by the daemon loop: it only asks for a wake-up
-//! (`next_deadline`) while files are settling, so an idle daemon blocks forever in `recv()`.
+//! (`next_deadline`) while files are settling, so an idle daemon waits without a timeout.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
-use crate::config::OriginalPolicy;
-use crate::convert::{ConvertCtx, Fingerprint, Outcome, convert_file};
+use crate::convert::{ConvertCtx, Fingerprint, Outcome, convert_guarded};
 use crate::event::Msg;
 use crate::platform::events::Notifier;
 use crate::{ipc, platform};
 
-/// What we observed about a file the last time we looked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Obs {
-    pub size: u64,
-    pub mtime: SystemTime,
-}
-
 #[derive(Debug)]
 struct Pending {
     deadline: Instant,
-    obs: Obs,
+    /// The file's size and mtime when it was last looked at.
+    fp: Fingerprint,
 }
 
 #[derive(Debug)]
@@ -44,14 +36,14 @@ impl Scheduler {
         Scheduler { settle, pending: HashMap::new(), in_flight: HashSet::new() }
     }
 
-    /// A change was reported. `obs` is None if the file no longer exists.
-    pub fn on_changed(&mut self, path: PathBuf, now: Instant, obs: Option<Obs>) {
-        match obs {
+    /// A change was reported. `fp` is None if the file no longer exists.
+    pub fn on_changed(&mut self, path: PathBuf, now: Instant, fp: Option<Fingerprint>) {
+        match fp {
             None => {
                 self.pending.remove(&path);
             }
-            Some(obs) => {
-                self.pending.insert(path, Pending { deadline: now + self.settle, obs });
+            Some(fp) => {
+                self.pending.insert(path, Pending { deadline: now + self.settle, fp });
             }
         }
     }
@@ -60,9 +52,10 @@ impl Scheduler {
         self.pending.values().map(|p| p.deadline).min()
     }
 
-    /// Files whose settle time elapsed and that did not change since; ready to convert.
-    /// `probe` re-reads size/mtime and reports whether a writer still holds the file.
-    pub fn take_ready(&mut self, now: Instant, probe: &dyn Fn(&Path) -> Probe) -> Vec<PathBuf> {
+    /// Files whose settle time elapsed and that did not change since; ready to convert, with
+    /// their current fingerprint. `probe` re-reads size/mtime and reports whether a writer still
+    /// holds the file.
+    pub fn take_ready(&mut self, now: Instant, probe: &dyn Fn(&Path) -> Probe) -> Vec<(PathBuf, Fingerprint)> {
         let due: Vec<PathBuf> =
             self.pending.iter().filter(|(_, p)| p.deadline <= now).map(|(k, _)| k.clone()).collect();
         let mut ready = Vec::new();
@@ -78,17 +71,16 @@ impl Scheduler {
                 Probe::Gone => {
                     self.pending.remove(&path);
                 }
-                Probe::Busy(obs) => {
-                    self.pending.insert(path, Pending { deadline: now + self.settle, obs });
+                Probe::Busy(fp) => {
+                    self.pending.insert(path, Pending { deadline: now + self.settle, fp });
                 }
-                Probe::Stable(obs) => {
-                    let prev = self.pending.get(&path).map(|p| p.obs);
-                    if prev == Some(obs) {
+                Probe::Stable(fp) => {
+                    if self.pending.get(&path).map(|p| p.fp) == Some(fp) {
                         self.pending.remove(&path);
                         self.in_flight.insert(path.clone());
-                        ready.push(path);
+                        ready.push((path, fp));
                     } else {
-                        self.pending.insert(path, Pending { deadline: now + self.settle, obs });
+                        self.pending.insert(path, Pending { deadline: now + self.settle, fp });
                     }
                 }
             }
@@ -104,7 +96,8 @@ impl Scheduler {
         self.pending.is_empty() && self.in_flight.is_empty()
     }
 
-    pub fn pending_len(&self) -> usize {
+    #[cfg(test)]
+    fn pending_len(&self) -> usize {
         self.pending.len()
     }
 }
@@ -113,8 +106,8 @@ impl Scheduler {
 pub enum Probe {
     Gone,
     /// Exists but another process still has it open for writing.
-    Busy(Obs),
-    Stable(Obs),
+    Busy(Fingerprint),
+    Stable(Fingerprint),
 }
 
 const WORKER_STACK: usize = 16 * 1024 * 1024;
@@ -135,21 +128,14 @@ pub struct WorkerSpec {
 impl WorkerSpec {
     pub fn for_ctx(ctx: &ConvertCtx) -> Option<WorkerSpec> {
         let exe = std::env::current_exe().ok()?;
-        let policy = match ctx.original {
-            OriginalPolicy::Delete => "delete",
-            OriginalPolicy::Trash => "trash",
-            OriginalPolicy::Keep => "keep",
-        };
-        let mut args = vec![
+        let args = [
             "worker".to_string(),
             format!("--effort={}", ctx.effort),
             format!("--threads={}", ctx.threads),
-            format!("--original={policy}"),
+            format!("--original={}", ctx.original.as_str()),
+            format!("--quality={}", ctx.quality.as_str()),
             format!("--skip-if-larger={}", ctx.skip_if_larger),
         ];
-        if let Some(q) = ctx.quality {
-            args.push(format!("--quality={q}"));
-        }
         Some(WorkerSpec { exe, args: args.into_iter().map(OsString::from).collect() })
     }
 }
@@ -241,7 +227,7 @@ impl Pool {
         let spec = self.spec.clone();
         let tx = self.tx.clone();
         let spawned = thread::Builder::new()
-            .name("oif-encode".into())
+            .name("optiman-encode".into())
             .stack_size(WORKER_STACK)
             .spawn(move || pool_thread(&shared, &ctx, spec.as_ref(), &tx));
         if spawned.is_err() {
@@ -269,11 +255,7 @@ impl Pool {
 
 fn convert_in_process(ctx: &ConvertCtx, path: &Path) -> Outcome {
     platform::power::enter_background_thread();
-    let _com = platform::ThreadInit::new();
-    catch_unwind(AssertUnwindSafe(|| convert_file(ctx, path))).unwrap_or_else(|_| Outcome::Failed {
-        reason: "内部エラー (panic)".into(),
-        remember: Fingerprint::of_path(path),
-    })
+    convert_guarded(ctx, path)
 }
 
 fn pool_thread(shared: &Mutex<PoolShared>, ctx: &ConvertCtx, spec: Option<&WorkerSpec>, tx: &Notifier) {
@@ -325,16 +307,12 @@ fn pool_thread(shared: &Mutex<PoolShared>, ctx: &ConvertCtx, spec: Option<&Worke
 /// Body of the hidden `worker` subcommand: convert paths read from stdin until it closes.
 pub fn run_worker(ctx: &ConvertCtx) -> i32 {
     platform::power::enter_background_process();
-    let _com = platform::ThreadInit::new();
     let stdin = io::stdin();
     let mut out = io::stdout().lock();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
         let path = PathBuf::from(ipc::unescape(line.trim_end_matches('\r')));
-        let outcome = catch_unwind(AssertUnwindSafe(|| convert_file(ctx, &path))).unwrap_or_else(|_| Outcome::Failed {
-            reason: "内部エラー (panic)".into(),
-            remember: Fingerprint::of_path(&path),
-        });
+        let outcome = convert_guarded(ctx, &path);
         if writeln!(out, "{}", ipc::outcome_to_line(&outcome)).and_then(|_| out.flush()).is_err() {
             break;
         }
@@ -347,8 +325,8 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    fn obs(size: u64) -> Obs {
-        Obs { size, mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(size) }
+    fn obs(size: u64) -> Fingerprint {
+        Fingerprint { size, mtime_ns: i128::from(size) * 1_000_000_000 }
     }
 
     #[test]
@@ -367,7 +345,7 @@ mod tests {
         assert_eq!(s.next_deadline(), Some(t0 + Duration::from_secs(2)));
         let probe = |_: &Path| Probe::Stable(obs(10));
         assert!(s.take_ready(t0 + Duration::from_secs(1), &probe).is_empty());
-        assert_eq!(s.take_ready(t0 + Duration::from_secs(2), &probe), vec![p.clone()]);
+        assert_eq!(s.take_ready(t0 + Duration::from_secs(2), &probe), vec![(p.clone(), obs(10))]);
         assert!(!s.is_idle(), "in flight until finished");
         assert_eq!(s.next_deadline(), None);
         s.finished(&p);
@@ -384,7 +362,7 @@ mod tests {
         let probe = |_: &Path| Probe::Stable(obs(*size.borrow()));
         assert!(s.take_ready(t0 + Duration::from_secs(2), &probe).is_empty());
         assert_eq!(s.next_deadline(), Some(t0 + Duration::from_secs(4)));
-        assert_eq!(s.take_ready(t0 + Duration::from_secs(4), &probe), vec![p.clone()]);
+        assert_eq!(s.take_ready(t0 + Duration::from_secs(4), &probe), vec![(p.clone(), obs(20))]);
     }
 
     #[test]

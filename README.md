@@ -183,7 +183,7 @@ effort = 7                 # 圧縮の強さ 1 (速い) - 9 (小さい)。変わ
 quality = "lossless"       # 画質: lossless (最高・劣化なし) / high / medium / low。JPEG はどれでも劣化なし
 original = "delete"        # delete | trash | keep
 scan_existing = false      # 起動時に既存の写真も変換するか
-jobs = 0                   # 同時変換数 (0 = 自動)
+jobs = 1                   # 同時に変換するファイル数
 settle_seconds = 2         # 書き込みが止まってから変換するまでの秒数
 skip_if_larger = true      # JPEG XL の方が大きくなる場合は元ファイルを残す
 extensions = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]

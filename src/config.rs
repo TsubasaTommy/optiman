@@ -142,6 +142,8 @@ pub struct Config {
     pub extensions: Vec<String>,
     /// Extra glob patterns (matched against each path component) to ignore.
     pub exclude: Vec<String>,
+    /// Install new releases automatically (checked about once a day).
+    pub auto_update: bool,
 }
 
 impl Default for Config {
@@ -158,6 +160,7 @@ impl Default for Config {
             skip_if_larger: true,
             extensions: DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect(),
             exclude: Vec::new(),
+            auto_update: true,
         }
     }
 }
@@ -178,6 +181,7 @@ const HEADER: &str = "\
 # skip_if_larger  JPEG XL の方が大きくなる場合は元ファイルを残す
 # extensions      対象の拡張子 (RAW は指定できません)
 # exclude         除外するフォルダ/ファイル名のパターン (* と ? が使えます)
+# auto_update     新しいバージョンを自動でインストールする (1 日 1 回確認。既定 true)
 
 ";
 

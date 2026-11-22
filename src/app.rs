@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use crate::APP_NAME;
 use crate::config::{self, Config, Quality};
 use crate::daemon::resolve_roots;
-use crate::platform::{self, autostart, events, paths};
+use crate::platform::{AgentSpec, autostart, events, paths};
 
 pub fn default_config_path() -> PathBuf {
     match std::env::var_os("OPTIMAN_HOME") {
@@ -66,20 +66,26 @@ pub fn stop_agent(config_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// What registering the agent for this config takes.
+pub fn agent_spec(config_path: &Path, cfg: &Config) -> Result<AgentSpec> {
+    let log_path = log_path_for(config_path);
+    Ok(AgentSpec {
+        exe: autostart::agent_executable()?,
+        config: config_path.to_path_buf(),
+        log_dir: log_path.parent().map(Path::to_path_buf).unwrap_or_else(paths::log_dir),
+        folders: resolve_roots(cfg),
+        auto_update: cfg.auto_update,
+    })
+}
+
 /// Registers (or re-registers) the agent for the folders in `cfg`, and (re)starts it if asked so
 /// that it picks up the new settings.
 pub fn register_agent(config_path: &Path, cfg: &Config, start_now: bool) -> Result<()> {
-    let exe = autostart::agent_executable()?;
+    let spec = agent_spec(config_path, cfg)?;
     if start_now {
         stop_agent(config_path)?;
     }
-    let log_path = log_path_for(config_path);
-    let log_dir = log_path.parent().map(Path::to_path_buf).unwrap_or_else(paths::log_dir);
-    let folders = resolve_roots(cfg);
-    autostart::install(
-        &platform::AgentSpec { exe: &exe, config: config_path, log_dir: &log_dir, folders: &folders },
-        start_now,
-    )
+    autostart::install(&spec, start_now)
 }
 
 /// Settings edited in the settings window.
@@ -89,6 +95,7 @@ pub struct Settings {
     pub quality: Quality,
     pub include: Vec<PathBuf>,
     pub exclude: Vec<PathBuf>,
+    pub auto_update: bool,
 }
 
 impl Settings {
@@ -98,6 +105,7 @@ impl Settings {
             quality: cfg.quality,
             include: cfg.folder_paths(),
             exclude: cfg.exclude_folder_paths(),
+            auto_update: cfg.auto_update,
         }
     }
 }
@@ -115,6 +123,7 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
     cfg.quality = settings.quality;
     cfg.folders = settings.include.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.exclude_folders = settings.exclude.iter().map(|f| config::contract_tilde(f)).collect();
+    cfg.auto_update = settings.auto_update;
     cfg.save(config_path)?;
     register_agent(config_path, &cfg, true)?;
     Ok(cfg)
@@ -130,6 +139,7 @@ pub mod ui_text {
     pub const QUALITY: &str = "画質";
     pub const INCLUDE: &str = "変換するフォルダ (サブフォルダも対象)";
     pub const EXCLUDE: &str = "除外するフォルダ (この中は変換しません)";
+    pub const AUTO_UPDATE: &str = "自動でアップデートする";
     pub const ADD: &str = "追加…";
     pub const REMOVE: &str = "削除";
     pub const CANCEL: &str = "キャンセル";
@@ -139,9 +149,14 @@ pub mod ui_text {
     pub const SAVE_FAILED: &str = "保存できませんでした";
 }
 
-/// The settings in one line: quality, effort, originals and existing photos.
+/// The settings in one line: quality, effort, originals, existing photos and updates.
 pub fn summary(cfg: &Config) -> String {
-    format!("{} / 既存の写真: {}", encoding_summary(cfg), if cfg.scan_existing { "変換する" } else { "新規のみ" })
+    format!(
+        "{} / 既存の写真: {} / 自動アップデート: {}",
+        encoding_summary(cfg),
+        if cfg.scan_existing { "変換する" } else { "新規のみ" },
+        if cfg.auto_update { "オン" } else { "オフ" }
+    )
 }
 
 /// How photos are encoded and what happens to the originals.

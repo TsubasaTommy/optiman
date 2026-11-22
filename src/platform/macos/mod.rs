@@ -8,6 +8,7 @@ pub mod image;
 pub mod paths;
 pub mod power;
 pub mod ui;
+pub mod update;
 pub mod watch;
 mod xpc;
 

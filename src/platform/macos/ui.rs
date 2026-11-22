@@ -36,6 +36,7 @@ pub struct Ivars {
     exclude: RefCell<Vec<PathBuf>>,
     effort: Cell<u8>,
     quality: Cell<Quality>,
+    auto_update: Cell<bool>,
     window: OnceCell<Retained<NSWindow>>,
     include_table: OnceCell<Retained<NSTableView>>,
     exclude_table: OnceCell<Retained<NSTableView>>,
@@ -91,6 +92,11 @@ define_class!(
             }
         }
 
+        #[unsafe(method(autoUpdateChanged:))]
+        fn auto_update_changed(&self, sender: &NSButton) {
+            self.ivars().auto_update.set(sender.state() == NSControlStateValueOn);
+        }
+
         #[unsafe(method(addInclude:))]
         fn add_include(&self, _sender: Option<&AnyObject>) {
             self.add_folders(true);
@@ -118,6 +124,7 @@ define_class!(
                 quality: self.ivars().quality.get(),
                 include: self.ivars().include.borrow().clone(),
                 exclude: self.ivars().exclude.borrow().clone(),
+                auto_update: self.ivars().auto_update.get(),
             };
             match app::save_settings(&self.ivars().config_path, &settings) {
                 Ok(_) => {
@@ -144,6 +151,7 @@ impl Controller {
             exclude: RefCell::new(s.exclude),
             effort: Cell::new(s.effort),
             quality: Cell::new(s.quality),
+            auto_update: Cell::new(s.auto_update),
             window: OnceCell::new(),
             include_table: OnceCell::new(),
             exclude_table: OnceCell::new(),
@@ -334,6 +342,22 @@ impl Controller {
         if let Some(hint) = super::image::viewer_hint() {
             self.label(&hint, frame(20.0, 460.0, 520.0, 36.0), &content);
         }
+
+        let auto_update = unsafe {
+            NSButton::checkboxWithTitle_target_action(
+                &NSString::from_str(text::AUTO_UPDATE),
+                Some(target),
+                Some(sel!(autoUpdateChanged:)),
+                mtm,
+            )
+        };
+        auto_update.setState(if self.ivars().auto_update.get() {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        });
+        auto_update.setFrame(frame(20.0, 519.0, 280.0, 22.0));
+        content.addSubview(&auto_update);
 
         self.button(text::CANCEL, sel!(cancel:), frame(330.0, 514.0, 100.0, 32.0), &content);
         let save = self.button(text::SAVE, sel!(save:), frame(440.0, 514.0, 100.0, 32.0), &content);

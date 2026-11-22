@@ -1,7 +1,8 @@
 //! launchd user agent (`~/Library/LaunchAgents`) that is started **on demand**:
 //! `LaunchEvents` / `com.apple.fsevents.matching` makes launchd launch the agent when anything
 //! below a watched folder changes, so no process of ours exists while nothing happens.
-//! Also installs the settings app bundle (`~/Applications/Optiman.app`).
+//! Also installs the settings app bundle (`~/Applications/Optiman.app`) and a second job that
+//! runs the update check once a day (`update --auto`).
 
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -38,6 +39,14 @@ fn service() -> String {
     format!("{}/{LABEL}", domain())
 }
 
+fn update_label() -> String {
+    format!("{LABEL}.update")
+}
+
+pub fn update_plist_path() -> PathBuf {
+    home_dir().join("Library/LaunchAgents").join(format!("{}.plist", update_label()))
+}
+
 /// The binary launchd should run. A Homebrew Cellar path changes on every upgrade, so use the
 /// stable `<prefix>/bin` link instead when there is one.
 pub fn agent_executable() -> Result<PathBuf> {
@@ -62,7 +71,7 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-fn plist(spec: &AgentSpec<'_>) -> String {
+fn plist(spec: &AgentSpec) -> String {
     let exe = xml_escape(&spec.exe.to_string_lossy());
     let config = xml_escape(&spec.config.to_string_lossy());
     let log = xml_escape(&spec.log_dir.join(LAUNCHD_LOG).to_string_lossy());
@@ -133,12 +142,13 @@ pub fn is_loaded() -> bool {
 }
 
 /// Writes (or rewrites) the LaunchAgent and the settings app, and (re)loads the agent.
-pub fn install(spec: &AgentSpec<'_>, start_now: bool) -> Result<()> {
+pub fn install(spec: &AgentSpec, start_now: bool) -> Result<()> {
     let path = plist_path();
     fs::create_dir_all(path.parent().unwrap_or(Path::new("/"))).context("LaunchAgents フォルダを作成できません")?;
-    fs::create_dir_all(spec.log_dir).ok();
+    fs::create_dir_all(&spec.log_dir).ok();
     fs::write(&path, plist(spec)).with_context(|| format!("書き込めません: {}", path.display()))?;
-    install_app_bundle(&app_bundle_path(), spec.exe)?;
+    install_app_bundle(&app_bundle_path(), &spec.exe)?;
+    sync_update_job(spec)?;
     let _ = launchctl(&["bootout", &service()]);
     if start_now {
         start()?;
@@ -171,6 +181,7 @@ pub fn stop() -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     stop()?;
+    remove_update_job()?;
     let path = plist_path();
     if path.exists() {
         fs::remove_file(&path).with_context(|| format!("削除できません: {}", path.display()))?;
@@ -235,12 +246,90 @@ fn info_plist() -> String {
     )
 }
 
-/// After an upgrade (`brew upgrade` replaces only the binary), rewrites the settings app so its
-/// version and icon follow the binary. Only a bundle that launches this binary is touched.
-pub fn refresh_app_bundle() -> Result<()> {
-    let (app, exe) = (app_bundle_path(), agent_executable()?);
-    if needs_refresh(&app, &exe) {
-        install_app_bundle(&app, &exe)?;
+/// After an upgrade (`brew upgrade` replaces only the binary), rewrites the settings app and the
+/// update job so they follow the binary. Only a registration that runs this binary is touched.
+pub fn refresh(spec: &AgentSpec) -> Result<()> {
+    let ours = fs::read_to_string(plist_path())
+        .is_ok_and(|p| p.contains(&format!("<string>{}</string>", xml_escape(&spec.exe.to_string_lossy()))));
+    if !ours {
+        return Ok(());
+    }
+    let app = app_bundle_path();
+    if needs_refresh(&app, &spec.exe) {
+        install_app_bundle(&app, &spec.exe)?;
+    }
+    sync_update_job(spec)
+}
+
+/// A job that runs `update --auto` at noon and at login (a sleeping Mac runs a missed one when it
+/// wakes); the command itself skips the check when the last one was recent.
+fn update_plist(spec: &AgentSpec) -> String {
+    let exe = xml_escape(&spec.exe.to_string_lossy());
+    let config = xml_escape(&spec.config.to_string_lossy());
+    let log = xml_escape(&spec.log_dir.join(LAUNCHD_LOG).to_string_lossy());
+    let label = update_label();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{label}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{exe}</string>
+		<string>--config</string>
+		<string>{config}</string>
+		<string>update</string>
+		<string>--auto</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>12</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>StandardErrorPath</key>
+	<string>{log}</string>
+</dict>
+</plist>
+"#
+    )
+}
+
+/// Registers the update job when automatic updates are on (and Homebrew can apply them), and
+/// removes it otherwise.
+fn sync_update_job(spec: &AgentSpec) -> Result<()> {
+    if !spec.auto_update || !super::update::can_install() {
+        return remove_update_job();
+    }
+    let path = update_plist_path();
+    let want = update_plist(spec);
+    if fs::read_to_string(&path).ok().as_deref() == Some(want.as_str()) {
+        return Ok(());
+    }
+    fs::write(&path, want).with_context(|| format!("書き込めません: {}", path.display()))?;
+    let _ = launchctl(&["bootout", &format!("{}/{}", domain(), update_label())]);
+    if !launchctl(&["bootstrap", &domain(), &path.to_string_lossy()])? {
+        bail!("launchctl bootstrap に失敗しました (自動アップデート)");
+    }
+    Ok(())
+}
+
+fn remove_update_job() -> Result<()> {
+    let path = update_plist_path();
+    if path.exists() {
+        let _ = launchctl(&["bootout", &format!("{}/{}", domain(), update_label())]);
+        fs::remove_file(&path).with_context(|| format!("削除できません: {}", path.display()))?;
     }
     Ok(())
 }
@@ -261,19 +350,33 @@ mod tests {
 
     #[test]
     fn plist_has_launch_events_per_folder_and_escapes() {
-        let folders = [PathBuf::from("/Users/a/Pictures"), PathBuf::from("/Volumes/x&y/Photos")];
-        let spec = AgentSpec {
-            exe: Path::new("/opt/homebrew/bin/optiman"),
-            config: Path::new("/c<d>/config.toml"),
-            log_dir: Path::new("/logs"),
-            folders: &folders,
-        };
+        let spec = test_spec();
         let p = plist(&spec);
         assert!(p.contains("<key>com.apple.fsevents.matching</key>"));
         assert!(p.contains("<string>/Users/a/Pictures</string>"));
         assert!(p.contains("<string>/Volumes/x&amp;y/Photos</string>"));
         assert!(p.contains("<string>/c&lt;d&gt;/config.toml</string>"));
         assert!(p.contains("<string>--on-demand</string>"));
+        assert!(!p.contains("KeepAlive"));
+    }
+
+    fn test_spec() -> AgentSpec {
+        AgentSpec {
+            exe: PathBuf::from("/opt/homebrew/bin/optiman"),
+            config: PathBuf::from("/c<d>/config.toml"),
+            log_dir: PathBuf::from("/logs"),
+            folders: vec![PathBuf::from("/Users/a/Pictures"), PathBuf::from("/Volumes/x&y/Photos")],
+            auto_update: true,
+        }
+    }
+
+    #[test]
+    fn update_job_runs_the_scheduled_check_daily() {
+        let p = update_plist(&test_spec());
+        assert!(p.contains("<string>io.github.tsubasatommy.optiman.update</string>"));
+        assert!(p.contains("<string>update</string>\n\t\t<string>--auto</string>"));
+        assert!(p.contains("<string>/c&lt;d&gt;/config.toml</string>"));
+        assert!(p.contains("<key>StartCalendarInterval</key>"));
         assert!(!p.contains("KeepAlive"));
     }
 

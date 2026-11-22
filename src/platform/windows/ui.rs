@@ -26,14 +26,15 @@ use windows::Win32::UI::Shell::{
     FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BM_SETCHECK, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DestroyWindow, DispatchMessageW, GetMessageW, HMENU, IDC_ARROW, IDCANCEL, IDOK, IsDialogMessageW, LB_ADDSTRING,
-    LB_ERR, LB_GETCURSEL, LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY, LoadCursorW, LoadIconW, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MSG, MessageBoxW, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW,
-    SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE,
-    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_HSCROLL, WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_CONTROLPARENT, WS_GROUP, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CW_USEDEFAULT,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, HMENU, IDC_ARROW, IDCANCEL, IDOK,
+    IsDialogMessageW, LB_ADDSTRING, LB_ERR, LB_GETCURSEL, LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY,
+    LoadCursorW, LoadIconW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MSG, MessageBoxW,
+    NONCLIENTMETRICSW, PostMessageW, PostQuitMessage, RegisterClassExW, SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW,
+    SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_HSCROLL, WM_SETFONT,
+    WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_CONTROLPARENT, WS_GROUP, WS_MINIMIZEBOX, WS_OVERLAPPED,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, w};
 
@@ -51,6 +52,7 @@ const ID_REMOVE_EXCLUDE: u16 = 104;
 const ID_INSTALL_EXTENSION: u16 = 105;
 /// The quality radio buttons are `ID_QUALITY + index in Quality::ALL`.
 const ID_QUALITY: u16 = 110;
+const ID_AUTO_UPDATE: u16 = 106;
 const ID_SLIDER: u16 = 201;
 const ID_INCLUDE_LIST: u16 = 202;
 const ID_EXCLUDE_LIST: u16 = 203;
@@ -72,6 +74,7 @@ struct Ui {
     exclude: RefCell<Vec<PathBuf>>,
     effort: Cell<u8>,
     quality: Cell<Quality>,
+    auto_update: Cell<HWND>,
     children: RefCell<Vec<Child>>,
     font: Cell<HFONT>,
     slider: Cell<HWND>,
@@ -158,7 +161,7 @@ impl Ui {
         self.add_child(WC_LISTBOXW, "", style, id, frame)
     }
 
-    fn build(&self) {
+    fn build(&self, auto_update: bool) {
         self.label(text::EFFORT, [20, 26, 106, 20]);
         self.label(text::EFFORT_LOW, [130, 26, 20, 20]);
         let slider = self.add_child(
@@ -223,6 +226,18 @@ impl Ui {
                 ));
             }
         }
+
+        let checkbox = self.add_child(
+            WC_BUTTONW,
+            text::AUTO_UPDATE,
+            WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            ID_AUTO_UPDATE,
+            [20, 522, 280, 22],
+        );
+        unsafe {
+            SendMessageW(checkbox, BM_SETCHECK, Some(WPARAM(usize::from(auto_update))), None);
+        }
+        self.auto_update.set(checkbox);
 
         self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 518, 100, 30]);
         self.button(text::SAVE, IDOK.0 as u16, [440, 518, 100, 30]);
@@ -312,6 +327,7 @@ impl Ui {
             quality: self.quality.get(),
             include: self.include.borrow().clone(),
             exclude: self.exclude.borrow().clone(),
+            auto_update: unsafe { SendMessageW(self.auto_update.get(), BM_GETCHECK, None, None) }.0 == 1,
         };
         let window = self.window.get();
         match app::save_settings(&self.config_path, &settings) {
@@ -470,6 +486,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         exclude: RefCell::new(cfg.exclude_folder_paths()),
         effort: Cell::new(cfg.effort.clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end())),
         quality: Cell::new(cfg.quality),
+        auto_update: Cell::new(HWND::default()),
         children: RefCell::new(Vec::new()),
         font: Cell::new(HFONT::default()),
         slider: Cell::new(HWND::default()),
@@ -504,7 +521,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         )
     }?;
     ui.window.set(window);
-    ui.build();
+    ui.build(cfg.auto_update);
     let actual = unsafe { GetDpiForWindow(window) };
     if actual != dpi {
         let mut rect = RECT { left: 0, top: 0, right: scale(WIDTH, actual), bottom: scale(HEIGHT, actual) };

@@ -107,6 +107,15 @@ jobs:
         shell: pwsh
         run: ./scripts/idle-check.ps1 -Exe target/debug/optiman.exe -Seconds 30
 
+      # Asks GitHub for the latest release with the OS's own curl (the build is never older, so
+      # nothing gets installed).
+      - name: Update check
+        shell: bash
+        run: |
+          out=$(OPTIMAN_HOME="$RUNNER_TEMP/update-check" target/debug/optiman update)
+          echo "$out"
+          [[ $out == 最新版です* ]]
+
       - name: Install / uninstall smoke test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

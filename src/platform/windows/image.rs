@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{HGLOBAL, WINCODEC_ERR_COMPONENTNOTFOUND};
+use windows::Win32::Foundation::{HGLOBAL, WINCODEC_ERR_COMPONENTINITIALIZEFAILURE, WINCODEC_ERR_COMPONENTNOTFOUND};
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA, GUID_WICPixelFormat32bppCMYK,
     GUID_WICPixelFormat32bppPBGRA, GUID_WICPixelFormat32bppPRGBA, GUID_WICPixelFormat32bppRGBA,
@@ -121,10 +121,14 @@ const PREMULTIPLIED: [GUID; 4] = [
 /// Decodes the first frame exactly as stored: original orientation, colour space and bit depth.
 pub fn decode(data: &[u8]) -> Result<SourceImage, EncodeError> {
     let opened = open(data).map_err(|e| {
-        if e.code() == WINCODEC_ERR_COMPONENTNOTFOUND {
-            EncodeError::Unsupported("この形式のデコーダがありません".into())
-        } else {
-            EncodeError::Unsupported(format!("画像として読み込めません ({})", e.message()))
+        let no_codec =
+            e.code() == WINCODEC_ERR_COMPONENTNOTFOUND || e.code() == WINCODEC_ERR_COMPONENTINITIALIZEFAILURE;
+        match () {
+            () if no_codec && data.get(8..12) == Some(b"WEBP") => EncodeError::Unsupported(
+                "WebP のデコーダがありません (Microsoft Store の「WebP 画像拡張機能」が必要です)".into(),
+            ),
+            () if no_codec => EncodeError::Unsupported("この形式のデコーダがありません".into()),
+            () => EncodeError::Unsupported(format!("画像として読み込めません ({})", e.message())),
         }
     })?;
     unsafe {

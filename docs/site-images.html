@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  Source of the site's share image (site/og.png, 1200×630) and home-screen icon
+  (site/apple-touch-icon.png, 180×180). Render on a Mac (Hiragino fonts) from the repo root:
+
+  CH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  "$CH" --headless=new --hide-scrollbars --window-size=1200,630 --screenshot="$PWD/site/og.png" "file://$PWD/docs/site-images.html#og"
+  "$CH" --headless=new --hide-scrollbars --window-size=180,180 --screenshot="$PWD/site/apple-touch-icon.png" "file://$PWD/docs/site-images.html#icon"
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --card: #767675; --win: #ffffff; --ink: #1f2021; --muted: #5c5e60; --rule: #e6e7e4; --chrome: #f4f5f3;
+    --bar: #3b3d3f; --bar-track: #e3e4e1; --ok: #2f7a3a;
+    --mincho: "Hiragino Mincho ProN", "Yu Mincho", serif;
+    --gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--card); color: #ffffff; font-family: var(--gothic); -webkit-font-smoothing: antialiased; }
+  .og, .icon { display: none; }
+  html.is-og .og { display: grid; }
+  html.is-icon .icon { display: grid; }
+  .mark { display: grid; grid-template-columns: repeat(3, var(--cell)); grid-template-rows: repeat(2, var(--cell)); }
+  .mark i:nth-child(1) { background: #735244; }
+  .mark i:nth-child(2) { background: #c29682; }
+  .mark i:nth-child(3) { background: #627a9d; }
+  .mark i:nth-child(4) { background: #576c43; }
+  .mark i:nth-child(5) { background: #8580b1; }
+  .mark i:nth-child(6) { background: #67bdaa; }
+
+  .og { width: 1200px; height: 630px; padding: 64px 72px; grid-template-columns: 1fr 430px; column-gap: 56px; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 16px; font-family: var(--mincho); font-weight: 600; font-size: 34px; letter-spacing: .06em; --cell: 12px; }
+  h1 { font-family: var(--mincho); font-weight: 600; font-size: 70px; line-height: 1.32; letter-spacing: .04em; font-feature-settings: "palt"; margin: 40px 0 28px; }
+  .sub { font-size: 24px; line-height: 1.7; margin: 0; word-break: auto-phrase; }
+  .window { background: var(--win); color: var(--ink); border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px -24px rgba(0, 0, 0, .5); }
+  .titlebar { padding: 14px 20px; background: var(--chrome); border-bottom: 1px solid var(--rule); font-size: 17px; font-weight: 700; }
+  .file { padding: 20px 22px; border-bottom: 1px solid var(--rule); }
+  .file:last-child { border-bottom: 0; }
+  .row { display: flex; justify-content: space-between; gap: 12px; font-size: 20px; }
+  .name { font-weight: 700; }
+  .size { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .size span { color: var(--muted); margin-left: 8px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--bar-track); margin: 12px 0 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--bar); }
+  .note { font-size: 15px; color: var(--muted); }
+  .note b { color: var(--ok); }
+
+  .icon { width: 180px; height: 180px; place-items: center; --cell: 36px; }
+</style>
+<script>document.documentElement.className = location.hash === "#icon" ? "is-icon" : "is-og";</script>
+</head>
+<body>
+<div class="og">
+  <div>
+    <div class="brand"><span class="mark"><i></i><i></i><i></i><i></i><i></i><i></i></span>Optiman</div>
+    <h1>写真はそのまま。<br>容量だけ、小さく。</h1>
+    <p class="sub">JPEG や PNG を、画質そのままで<br>JPEG XL に自動で変換します。<br>Mac と Windows で使える無料ツールです。</p>
+  </div>
+  <div class="window">
+    <div class="titlebar">ピクチャ</div>
+    <div class="file">
+      <div class="row"><span class="name">IMG_2041.jxl</span><span class="size">4.4 MB<span>−21%</span></span></div>
+      <div class="bar"><i style="width: 79%"></i></div>
+      <div class="note"><b>✓</b> 元の JPEG にバイト単位で戻せることを確認</div>
+    </div>
+    <div class="file">
+      <div class="row"><span class="name">夕景_4K.jxl</span><span class="size">6.2 MB<span>−41%</span></span></div>
+      <div class="bar"><i style="width: 59%"></i></div>
+      <div class="note"><b>✓</b> すべての画素が元と一致することを確認</div>
+    </div>
+  </div>
+</div>
+<div class="icon"><span class="mark"><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+</body>
+</html>

@@ -15,9 +15,6 @@ use super::paths::home_dir;
 pub const LABEL: &str = "io.github.tsubasatommy.optiman";
 pub const APP_NAME: &str = crate::DISPLAY_NAME;
 const BUNDLE_ID: &str = "io.github.tsubasatommy.optiman.settings";
-/// Names used up to v0.2.0 (see `crate::migrate`).
-const LEGACY_LABEL: &str = "io.github.tsubasatommy.optimize-image-folder";
-const LEGACY_APP_NAME: &str = "Optimize Image Folder";
 
 /// What the agent needs to know to be registered.
 pub struct AgentSpec<'a> {
@@ -185,22 +182,6 @@ pub fn uninstall() -> Result<()> {
         fs::remove_dir_all(&app).with_context(|| format!("削除できません: {}", app.display()))?;
     }
     Ok(())
-}
-
-/// Stops and removes the agent and the settings app registered under the former name (up to
-/// v0.2.0). Returns whether an agent was registered.
-pub fn remove_legacy() -> bool {
-    let app = home_dir().join("Applications").join(format!("{LEGACY_APP_NAME}.app"));
-    if app.join("Contents/Info.plist").exists() {
-        let _ = fs::remove_dir_all(&app);
-    }
-    let plist = home_dir().join("Library/LaunchAgents").join(format!("{LEGACY_LABEL}.plist"));
-    if !plist.exists() {
-        return false;
-    }
-    let _ = launchctl(&["bootout", &format!("{}/{LEGACY_LABEL}", domain())]);
-    let _ = fs::remove_file(&plist);
-    true
 }
 
 pub fn describe() -> String {

@@ -19,7 +19,6 @@ pub mod ipc;
 pub mod jxl;
 pub mod logger;
 pub mod metadata;
-pub mod migrate;
 pub mod platform;
 pub mod restore;
 pub mod scheduler;
@@ -30,6 +29,4 @@ pub mod walk;
 pub const APP_NAME: &str = "optiman";
 /// Name shown to people (windows, the app bundle, the installer).
 pub const DISPLAY_NAME: &str = "Optiman";
-/// The name used up to v0.2.0; see [`migrate`].
-pub const LEGACY_NAME: &str = "optimize-image-folder";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

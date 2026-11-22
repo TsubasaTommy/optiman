@@ -17,7 +17,7 @@ use crate::filter::Filter;
 use crate::platform::{self, autostart, paths};
 use crate::state::State;
 use crate::walk::walk;
-use crate::{APP_NAME, DISPLAY_NAME, LEGACY_NAME, VERSION, logger, restore};
+use crate::{APP_NAME, DISPLAY_NAME, VERSION, logger, restore};
 
 /// How long an on-demand (launchd) run stays alive after the last activity.
 const ON_DEMAND_IDLE_EXIT: Duration = Duration::from_secs(5);
@@ -160,14 +160,9 @@ pub fn main() -> i32 {
     // Opened from the settings app bundle (macOS) without arguments.
     #[cfg(target_os = "macos")]
     if std::env::args_os().len() == 1 && autostart::launched_from_app_bundle() {
-        migrate_from_legacy();
         return report(platform::ui::run_settings(&default_config_path()));
     }
     let cli = Cli::parse();
-    if cli.config.is_none() && !matches!(cli.command, Command::Run { .. } | Command::Worker(_) | Command::Viewer { .. })
-    {
-        migrate_from_legacy();
-    }
     let config_path = cli.config.clone().unwrap_or_else(default_config_path);
     let result = match cli.command {
         Command::Install(args) => install(&config_path, args),
@@ -196,13 +191,6 @@ pub fn main() -> i32 {
         }
     };
     report(result)
-}
-
-/// Takes over an installation made under the former name (see [`crate::migrate`]).
-pub fn migrate_from_legacy() {
-    if crate::migrate::from_legacy().any() {
-        eprintln!("以前の名前 ({LEGACY_NAME}) の設定と自動起動を {DISPLAY_NAME} に引き継ぎました");
-    }
 }
 
 fn report(result: Result<()>) -> i32 {

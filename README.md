@@ -26,13 +26,11 @@ Homebrew を使わない場合は、次を実行します。最新リリース�
 curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh
 ```
 
-以前の名前 (optimize-image-folder) で入れている場合は、Homebrew なら `brew update` と `brew upgrade` で Optiman に切り替わります。そのあと一度 `optiman install` を実行すると、設定と自動起動を引き継ぎます。curl のコマンドで入れ直した場合も同じように引き継ぎます。
-
 ### Windows 10 / 11
 
 [Optiman-Setup.exe をダウンロード](https://github.com/TsubasaTommy/optiman/releases/latest/download/Optiman-Setup.exe)
 
-x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。以前の名前 (Optimize Image Folder) で入れている場合も、上書きすると設定と自動起動を引き継いで置き換えます。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
+x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
 
 > [!NOTE]
 > インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は [SHA256SUMS.txt](https://github.com/TsubasaTommy/optiman/releases/latest/download/SHA256SUMS.txt) でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。

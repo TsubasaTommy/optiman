@@ -5,10 +5,6 @@
 ; - Registers the agent (HKCU Run) through `optiman.exe install` and starts it.
 ; - Optionally installs Microsoft's free "JPEG XL Image Extension" from the Microsoft Store
 ;   (Windows 11 24H2 and later) so Explorer and Photos can show the converted files.
-; - Upgrades an installation of the former name (Optimize Image Folder, up to v0.2.0; same AppId):
-;   stops its agent and removes its files, shortcut and PATH entry; an install in the default
-;   folder (...\OptimizeImageFolder) moves to ...\Optiman. `optiman install` then moves the settings
-;   and replaces the old autostart entry.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -26,7 +22,6 @@
 #define AppURL "https://tsubasatommy.github.io/optiman/"
 #define Cli "optiman.exe"
 #define Agent "optiman-agent.exe"
-#define LegacyCli "optimize-image-folder.exe"
 
 [Setup]
 AppId={{60ADCF2D-2A75-4CF1-86E1-73921ECB571E}
@@ -113,9 +108,6 @@ Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
-[InstallDelete]
-Type: files; Name: "{autoprograms}\Optimize Image Folder.lnk"
-
 [Registry]
 ; Puts the CLI (status, convert, restore ...) on the user's PATH.
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
@@ -134,7 +126,6 @@ Filename: "{app}\{#Cli}"; Parameters: "uninstall"; Flags: runhidden waituntilter
 var
   OriginalPage: TInputOptionWizardPage;
   ScanPage: TInputOptionWizardPage;
-  LegacyDir: String;  { folder of an installation of the former name, or '' }
 
 function IsViewerSupported: Boolean;
 var
@@ -146,20 +137,11 @@ end;
 
 function ConfigExists: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{userappdata}\optiman\config.toml'))
-    or FileExists(ExpandConstant('{userappdata}\optimize-image-folder\config.toml'));
+  Result := FileExists(ExpandConstant('{userappdata}\optiman\config.toml'));
 end;
 
 procedure InitializeWizard;
 begin
-  LegacyDir := '';
-  if (WizardForm.PrevAppDir <> '') and FileExists(AddBackslash(WizardForm.PrevAppDir) + '{#LegacyCli}') then
-  begin
-    LegacyDir := RemoveBackslash(WizardForm.PrevAppDir);
-    if CompareText(ExtractFileName(LegacyDir), 'OptimizeImageFolder') = 0 then
-      WizardForm.DirEdit.Text := ExpandConstant('{autopf}\Optiman');
-  end;
-
   OriginalPage := CreateInputOptionPage(wpSelectTasks, CustomMessage('OriginalTitle'),
     CustomMessage('OriginalDesc'), CustomMessage('OriginalPrompt'), True, False);
   OriginalPage.Add(CustomMessage('OriginalDelete'));
@@ -206,7 +188,7 @@ begin
     Result := Result + ' --open-store';
 end;
 
-{ Stop a running agent before its files are replaced (upgrade), also one of the former name. }
+{ Stop a running agent before its files are replaced (upgrade). }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Cli: String;
@@ -215,8 +197,6 @@ begin
   Cli := ExpandConstant('{app}\{#Cli}');
   if FileExists(Cli) then
     Exec(Cli, 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  if LegacyDir <> '' then
-    Exec(LegacyDir + '\{#LegacyCli}', 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
 end;
 
@@ -247,30 +227,6 @@ begin
   RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Path);
 end;
 
-{ Removes what the former name left behind. Only our own files are deleted, so a folder the user
-  chose keeps anything else that is in it. }
-procedure RemoveLegacyInstall;
-var
-  Moved: Boolean;
-begin
-  if LegacyDir = '' then
-    exit;
-  DeleteFile(LegacyDir + '\{#LegacyCli}');
-  DeleteFile(LegacyDir + '\optimize-image-folder-agent.exe');
-  Moved := CompareText(LegacyDir, RemoveBackslash(ExpandConstant('{app}'))) <> 0;
-  if Moved then
-  begin
-    DeleteFile(LegacyDir + '\README.md');
-    DeleteFile(LegacyDir + '\LICENSE.txt');
-    DeleteFile(LegacyDir + '\THIRD_PARTY_LICENSES.txt');
-    DeleteFile(LegacyDir + '\unins000.exe');
-    DeleteFile(LegacyDir + '\unins000.dat');
-    DeleteFile(LegacyDir + '\unins000.msg');
-    RemoveDir(LegacyDir);
-    RemovePath(LegacyDir);
-  end;
-end;
-
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
@@ -284,7 +240,6 @@ var
 begin
   if CurStep <> ssPostInstall then
     exit;
-  RemoveLegacyInstall;
   WizardForm.StatusLabel.Caption := CustomMessage('Registering');
   if not Exec(ExpandConstant('{app}\{#Cli}'), InstallParams(''), '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
     or (ResultCode <> 0) then

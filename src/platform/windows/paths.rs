@@ -27,21 +27,11 @@ pub fn home_dir() -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    config_dir_for(APP_NAME)
+    known(&FOLDERID_RoamingAppData).unwrap_or_else(|| home_dir().join("AppData\\Roaming")).join(APP_NAME)
 }
 
 pub fn log_dir() -> PathBuf {
-    log_root_for(APP_NAME).join("logs")
-}
-
-/// Settings and state of an app called `name` (also used to find the former name's folder).
-pub fn config_dir_for(name: &str) -> PathBuf {
-    known(&FOLDERID_RoamingAppData).unwrap_or_else(|| home_dir().join("AppData\\Roaming")).join(name)
-}
-
-/// The folder that holds everything log-related for `name` (`logs` lives inside it).
-pub fn log_root_for(name: &str) -> PathBuf {
-    known(&FOLDERID_LocalAppData).unwrap_or_else(|| home_dir().join("AppData\\Local")).join(name)
+    known(&FOLDERID_LocalAppData).unwrap_or_else(|| home_dir().join("AppData\\Local")).join(APP_NAME).join("logs")
 }
 
 pub fn pictures_dir() -> PathBuf {

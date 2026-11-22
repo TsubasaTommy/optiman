@@ -19,21 +19,11 @@ pub fn home_dir() -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    config_dir_for(APP_NAME)
+    home_dir().join("Library/Application Support").join(APP_NAME)
 }
 
 pub fn log_dir() -> PathBuf {
-    log_root_for(APP_NAME)
-}
-
-/// Settings and state of an app called `name` (also used to find the former name's folder).
-pub fn config_dir_for(name: &str) -> PathBuf {
-    home_dir().join("Library/Application Support").join(name)
-}
-
-/// The folder that holds everything log-related for `name`.
-pub fn log_root_for(name: &str) -> PathBuf {
-    home_dir().join("Library/Logs").join(name)
+    home_dir().join("Library/Logs").join(APP_NAME)
 }
 
 pub fn pictures_dir() -> PathBuf {

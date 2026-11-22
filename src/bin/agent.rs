@@ -22,9 +22,6 @@ fn main() {
             settings = true;
         }
     }
-    if settings && config.is_none() {
-        optiman::cli::migrate_from_legacy();
-    }
     let config = config.unwrap_or_else(optiman::app::default_config_path);
     if settings {
         if let Err(e) = optiman::platform::ui::run_settings(&config) {

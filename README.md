@@ -5,7 +5,7 @@
 
 # Optiman
 
-写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する macOS / Windows 用ツールです。JPEG は元のファイルにいつでも戻せる形のまま約 2 割、PNG は約 3〜5 割小さくなります。さらに小さくしたい場合は、PNG などを非可逆で圧縮するオプションもあります。待っている間は CPU を使いません。
+写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する、macOS / Windows 用の無料ツールです。JPEG は元のファイルにいつでも戻せる形のまま約 2 割、PNG は約 3〜5 割小さくなります。さらに小さくしたい場合は、PNG などを非可逆で圧縮するオプションもあります。待っている間は CPU を使いません。
 
 ダウンロードと手順は [配布ページ](https://tsubasatommy.github.io/optiman/) に、過去の版は [リリース](https://github.com/TsubasaTommy/optiman/releases) にあります。
 

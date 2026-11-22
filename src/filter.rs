@@ -1,8 +1,10 @@
-//! Path-name based filtering (no filesystem access).
+//! Path filtering: names (hidden files, library bundles, patterns), extensions and the
+//! excluded folders (blacklist). No filesystem access.
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use crate::config::Config;
+use crate::platform;
 
 /// Suffix of our own in-progress output files (they are also dot-prefixed, i.e. hidden).
 pub const TEMP_SUFFIX: &str = ".oif-tmp";
@@ -31,6 +33,8 @@ const BUILTIN_EXCLUDE: &[&str] = &[
 pub struct Filter {
     extensions: Vec<String>,
     exclude: Vec<String>,
+    /// Canonical excluded folders (config `exclude_folders`).
+    excluded_dirs: Vec<PathBuf>,
 }
 
 impl Filter {
@@ -38,11 +42,25 @@ impl Filter {
         let extensions = cfg.extensions.iter().map(|e| e.trim_start_matches('.').to_ascii_lowercase()).collect();
         let exclude =
             BUILTIN_EXCLUDE.iter().map(|s| s.to_string()).chain(cfg.exclude.iter().map(|s| s.to_lowercase())).collect();
-        Filter { extensions, exclude }
+        let excluded_dirs =
+            cfg.exclude_folder_paths().into_iter().map(|p| platform::paths::canonical(&p).unwrap_or(p)).collect();
+        Filter { extensions, exclude, excluded_dirs }
+    }
+
+    pub fn excluded_dirs(&self) -> &[PathBuf] {
+        &self.excluded_dirs
+    }
+
+    /// True if `path` is inside one of the excluded folders.
+    pub fn in_excluded_dir(&self, path: &Path) -> bool {
+        self.excluded_dirs.iter().any(|d| path.starts_with(d))
     }
 
     /// True when `path` (somewhere below `root`) is a photo we should convert, judging by name only.
     pub fn accepts(&self, root: &Path, path: &Path) -> bool {
+        if self.in_excluded_dir(path) {
+            return false;
+        }
         let Ok(rel) = path.strip_prefix(root) else { return false };
         let mut last = None;
         for comp in rel.components() {
@@ -111,7 +129,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn filter() -> Filter {
-        Filter::new(&Config { exclude: vec!["Private*".into()], ..Config::default() })
+        Filter::new(&Config {
+            exclude: vec!["Private*".into()],
+            exclude_folders: vec!["/r/skip-me".into()],
+            ..Config::default()
+        })
     }
 
     #[test]
@@ -129,9 +151,9 @@ mod tests {
         let f = filter();
         let root = PathBuf::from("/r");
         assert!(f.accepts(&root, Path::new("/r/2024/IMG_0001.JPG")));
-        assert!(f.accepts(&root, Path::new("/r/a.heic")));
         assert!(f.accepts(&root, Path::new("/r/a.WebP")));
-        assert!(!f.accepts(&root, Path::new("/r/a.avif")));
+        assert!(!f.accepts(&root, Path::new("/r/a.jxl")));
+        assert!(!f.accepts(&root, Path::new("/r/a.heic")));
         assert!(!f.accepts(&root, Path::new("/r/a.CR3")));
         assert!(!f.accepts(&root, Path::new("/r/.jpg")));
         assert!(!f.accepts(&root, Path::new("/r/noext")));
@@ -147,6 +169,8 @@ mod tests {
         assert!(!f.accepts(&root, Path::new("/r/Lightroom Catalog Previews.lrdata/a.jpg")));
         assert!(!f.accepts(&root, Path::new("/r/$RECYCLE.BIN/a.jpg")));
         assert!(!f.accepts(&root, Path::new("/r/private stuff/a.jpg")));
-        assert!(!f.accepts(&root, Path::new("/r/.a.avif.oif-tmp")));
+        assert!(!f.accepts(&root, Path::new("/r/.a.jxl.oif-tmp")));
+        assert!(!f.accepts(&root, Path::new("/r/skip-me/deep/a.jpg")));
+        assert!(f.accepts(&root, Path::new("/r/skip-me-not/a.jpg")));
     }
 }

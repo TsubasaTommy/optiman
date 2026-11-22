@@ -1,21 +1,16 @@
 //! OS-specific code. Each platform module exposes the same submodules:
-//! `paths`, `watch`, `image`, `fsutil`, `power`, `autostart`, `instance` and `ThreadInit`.
+//! `paths`, `events`, `image`, `fsutil`, `power`, `autostart`, `ui` and `ThreadInit`.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Primaries {
-    Srgb,
-    DisplayP3,
+cfg_select! {
+    target_os = "macos" => {
+        mod macos;
+        pub use macos::{ThreadInit, autostart, events, fsutil, image, paths, power, ui};
+    }
+    windows => {
+        mod windows;
+        pub use self::windows::{ThreadInit, autostart, events, fsutil, image, paths, power, ui};
+    }
+    _ => {
+        compile_error!("optimize-image-folder supports macOS and Windows only");
+    }
 }
-
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::{ThreadInit, autostart, fsutil, image, instance, paths, power, watch};
-
-#[cfg(windows)]
-mod windows;
-#[cfg(windows)]
-pub use self::windows::{ThreadInit, autostart, fsutil, image, instance, paths, power, watch};
-
-#[cfg(not(any(target_os = "macos", windows)))]
-compile_error!("optimize-image-folder supports macOS and Windows only");

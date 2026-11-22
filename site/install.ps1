@@ -1,49 +1,35 @@
 # optimize-image-folder installer for Windows.
 #   irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex
+# Downloads the latest OptimizeImageFolder-Setup.exe, checks its SHA256 against the release's
+# SHA256SUMS.txt and runs it. Set $env:OIF_SILENT = "1" for a silent install with the defaults.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $repo = "TsubasaTommy/optimize-image-folder"
-$isArm = ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") -or ($env:PROCESSOR_ARCHITEW6432 -eq "ARM64")
-$arch = if ($isArm) { "arm64" } else { "x64" }
-$asset = "optimize-image-folder-windows-$arch.zip"
+$asset = "OptimizeImageFolder-Setup.exe"
 $base = "https://github.com/$repo/releases/latest/download"
-$dest = if ($env:OIF_INSTALL_DIR) { $env:OIF_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\optimize-image-folder" }
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("oif-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 try {
     Write-Host "ダウンロード中: $asset"
-    Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile (Join-Path $tmp $asset)
+    $exe = Join-Path $tmp $asset
+    Invoke-WebRequest -UseBasicParsing -Uri "$base/$asset" -OutFile $exe
     Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS.txt" -OutFile (Join-Path $tmp "SHA256SUMS.txt")
 
     $expected = Get-Content (Join-Path $tmp "SHA256SUMS.txt") |
         ForEach-Object { $parts = $_ -split '\s+'; if ($parts[1].TrimStart('*') -eq $asset) { $parts[0] } } |
         Select-Object -First 1
-    $actual = (Get-FileHash (Join-Path $tmp $asset) -Algorithm SHA256).Hash.ToLower()
+    $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
     if (-not $expected -or $expected -ne $actual) { throw "チェックサムが一致しません (期待値: $expected, 実際: $actual)" }
 
-    $cli = Join-Path $dest "optimize-image-folder.exe"
-    if (Test-Path $cli) {
-        & $cli stop *> $null
-        Start-Sleep -Seconds 1
-    }
-    New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $dest -Force
-    Get-ChildItem $dest -File | Unblock-File
-    Write-Host "インストールしました: $dest"
-
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($null -eq $userPath) { $userPath = "" }
-    if (-not (($userPath -split ';') -contains $dest)) {
-        [Environment]::SetEnvironmentVariable("Path", (($userPath.TrimEnd(';') + ";$dest").TrimStart(';')), "User")
-        $env:Path += ";$dest"
-        Write-Host "PATH に追加しました (新しいターミナルで optimize-image-folder コマンドが使えます)"
-    }
-
-    Write-Host ""
-    & $cli install @args
+    $start = @{ FilePath = $exe; Wait = $true; PassThru = $true }
+    if ($env:OIF_SILENT) { $start.ArgumentList = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-") }
+    Write-Host "インストーラーを起動します"
+    $p = Start-Process @start
+    if ($p.ExitCode -ne 0) { throw "インストーラーが終了コード $($p.ExitCode) で終了しました" }
+    Write-Host "インストールしました"
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

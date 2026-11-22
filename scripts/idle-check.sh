@@ -14,6 +14,7 @@ cat > "$WORK/home/config.toml" <<CFG
 folders = ["$WORK/photos"]
 original = "delete"
 settle_seconds = 1
+effort = 3
 CFG
 
 OIF_HOME="$WORK/home" "$BIN" --config "$WORK/home/config.toml" run --log-stderr 2> "$WORK/agent.log" &
@@ -23,10 +24,10 @@ trap 'kill $PID 2>/dev/null || true; rm -rf "$WORK"' EXIT
 sleep 3
 cp tests/fixtures/photo_orient6.jpg "$WORK/photos/a.jpg"
 for _ in $(seq 1 60); do
-  [ -f "$WORK/photos/a.avif" ] && [ ! -f "$WORK/photos/a.jpg" ] && break
+  [ -f "$WORK/photos/a.jxl" ] && [ ! -f "$WORK/photos/a.jpg" ] && break
   sleep 1
 done
-if [ ! -f "$WORK/photos/a.avif" ]; then
+if [ ! -f "$WORK/photos/a.jxl" ]; then
   echo "FAIL: the agent did not convert the test file"; cat "$WORK/agent.log"; exit 1
 fi
 sleep 3

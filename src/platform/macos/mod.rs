@@ -1,13 +1,15 @@
-//! macOS: FSEvents, ImageIO/CoreGraphics, libdispatch, launchd.
+//! macOS: FSEvents, launchd launch events (XPC), ImageIO/CoreGraphics, libdispatch.
 
 pub mod autostart;
+pub mod events;
 pub(crate) mod ffi;
 pub mod fsutil;
 pub mod image;
-pub mod instance;
 pub mod paths;
 pub mod power;
+pub mod ui;
 pub mod watch;
+mod xpc;
 
 /// Per-thread OS initialisation (nothing needed on macOS).
 pub struct ThreadInit;

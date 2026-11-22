@@ -1,0 +1,7 @@
+# Supply-chain hygiene (Cargo 1.100): ignore crate versions published less than a week ago
+# unless they are already in Cargo.lock.
+[registry]
+global-min-publish-age = "7 days"
+
+[resolver]
+incompatible-publish-age = "deny"

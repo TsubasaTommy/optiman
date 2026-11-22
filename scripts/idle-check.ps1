@@ -17,6 +17,7 @@ Set-Content -Path $cfg -Encoding utf8 -Value @"
 folders = ["$folder"]
 original = "delete"
 settle_seconds = 1
+effort = 3
 "@
 
 $log = Join-Path $work "agent.log"
@@ -26,12 +27,12 @@ $p = Start-Process -FilePath (Resolve-Path $Exe) -ArgumentList @("--config", "`"
 try {
     Start-Sleep -Seconds 3
     Copy-Item "tests\fixtures\photo_orient6.jpg" (Join-Path $photos "a.jpg")
-    $avif = Join-Path $photos "a.avif"
+    $jxl = Join-Path $photos "a.jxl"
     $deadline = (Get-Date).AddSeconds(90)
-    while (-not ((Test-Path $avif) -and -not (Test-Path (Join-Path $photos "a.jpg"))) -and (Get-Date) -lt $deadline) {
+    while (-not ((Test-Path $jxl) -and -not (Test-Path (Join-Path $photos "a.jpg"))) -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 500
     }
-    if (-not (Test-Path $avif)) {
+    if (-not (Test-Path $jxl)) {
         Get-Content $log
         throw "FAIL: the agent did not convert the test file"
     }

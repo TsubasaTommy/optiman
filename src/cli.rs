@@ -4,22 +4,26 @@ use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
-use crate::config::{self, Config, EncoderChoice, OriginalPolicy};
-use crate::convert::{ConvertCtx, Outcome, convert_file, human};
+use crate::app::{self, agent_running, default_config_path, lock_path_for, log_path_for};
+use crate::config::{self, Config, OriginalPolicy};
+use crate::convert::{ConvertCtx, Outcome, convert_file, default_threads, human};
 use crate::daemon::{self, state_path_for};
-use crate::encode::EncoderKind;
 use crate::filter::Filter;
 use crate::platform::{self, autostart, paths};
 use crate::state::State;
 use crate::walk::walk;
-use crate::{APP_NAME, VERSION, logger};
+use crate::{APP_NAME, VERSION, logger, restore};
+
+/// How long an on-demand (launchd) run stays alive after the last activity.
+const ON_DEMAND_IDLE_EXIT: Duration = Duration::from_secs(5);
 
 #[derive(Parser, Debug)]
-#[command(name = APP_NAME, version, about = "写真フォルダを監視して AV1 (AVIF) に変換する常駐ツール")]
+#[command(name = APP_NAME, version, about = "写真フォルダの写真を劣化なしで JPEG XL に変換します")]
 pub struct Cli {
     /// 設定ファイルのパス (既定: OS 標準の場所)
     #[arg(long, global = true, value_name = "PATH")]
@@ -31,56 +35,63 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// 設定を作成して自動起動に登録し、常駐を開始する
+    /// 設定を作成して自動起動に登録する
     Install(InstallArgs),
-    /// 自動起動を解除して常駐を停止する
+    /// 自動起動を解除する
     Uninstall {
         /// 設定・状態・ログも削除する
         #[arg(long)]
         purge: bool,
     },
-    /// 常駐を開始する
+    /// 設定画面を開く
+    Settings,
+    /// 監視を開始する
     Start,
-    /// 常駐を停止する
+    /// 監視を停止する
     Stop,
-    /// 常駐を再起動する (設定の反映)
+    /// 監視を再起動する (設定ファイルを手で編集したとき)
     Restart,
     /// 状態を表示する
     Status,
-    /// フォアグラウンドで常駐する (自動起動から呼ばれます)
+    /// 変換を実行する (自動起動から呼ばれます)
     Run {
         /// ログをファイルではなく標準エラーに出す
         #[arg(long)]
         log_stderr: bool,
+        /// 待機状態になったら終了する (macOS の launchd からの起動用)
+        #[arg(long)]
+        on_demand: bool,
     },
     /// ファイル/フォルダを今すぐ変換する
     Convert(ConvertArgs),
+    /// JPEG XL から元のファイルを復元する (JPEG はバイト単位で元どおり、それ以外は PNG)
+    Restore(RestoreArgs),
     /// 設定ファイルの場所と内容を表示する
     Config,
     /// (内部用) 標準入力から受け取ったファイルを変換する使い捨てプロセス
     #[command(hide = true)]
     Worker(WorkerArgs),
-}
-
-#[derive(Args, Debug)]
-pub struct WorkerArgs {
-    #[arg(long)]
-    pub quality: u8,
-    #[arg(long)]
-    pub speed: u8,
-    #[arg(long, value_enum)]
-    pub original: OriginalPolicy,
-    #[arg(long)]
-    pub encoder: String,
-    #[arg(long, action = clap::ArgAction::Set)]
-    pub skip_if_larger: bool,
+    /// (インストーラー用) JPEG XL を表示できるか確認し、必要なら表示用の拡張機能を入れる。
+    /// 終了コード: 0 = 表示できる / 1 = できない / 2 = インストール失敗 / 3 = この OS では非対応
+    #[command(hide = true)]
+    Viewer {
+        /// 表示できなければ拡張機能 (Microsoft 公式・無料) をインストールする
+        #[arg(long)]
+        install: bool,
+        /// インストールに失敗したら Microsoft Store のページを開く
+        #[arg(long)]
+        open_store: bool,
+    },
 }
 
 #[derive(Args, Debug, Default)]
 pub struct InstallArgs {
-    /// 監視するフォルダ (複数指定可。既定: ピクチャフォルダ)
+    /// 変換するフォルダ (複数指定可。既定: ピクチャフォルダ)
     #[arg(long = "folder", value_name = "DIR")]
     pub folders: Vec<PathBuf>,
+    /// 除外するフォルダ (複数指定可)
+    #[arg(long = "exclude", value_name = "DIR")]
+    pub exclude: Vec<PathBuf>,
     /// 既存の写真も変換する
     #[arg(long, conflicts_with = "new_only")]
     pub scan_existing: bool,
@@ -90,16 +101,16 @@ pub struct InstallArgs {
     /// 変換後の元ファイルの扱い
     #[arg(long, value_enum)]
     pub original: Option<OriginalPolicy>,
-    /// 画質 1-100
-    #[arg(long)]
-    pub quality: Option<u8>,
+    /// 圧縮の強さ 1-9 (画質は常に劣化なし)
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
+    pub effort: Option<u8>,
     /// 確認なしで進める
     #[arg(long, short = 'y')]
     pub yes: bool,
     /// 安全チェック (ホームフォルダ全体などの拒否) を無効にする
     #[arg(long)]
     pub force: bool,
-    /// 登録だけして常駐は開始しない
+    /// 登録だけして開始しない
     #[arg(long)]
     pub no_start: bool,
 }
@@ -112,10 +123,9 @@ pub struct ConvertArgs {
     /// 変換後の元ファイルの扱い (既定: 設定ファイルの値)
     #[arg(long, value_enum)]
     pub original: Option<OriginalPolicy>,
-    #[arg(long)]
-    pub quality: Option<u8>,
-    #[arg(long, value_enum)]
-    pub encoder: Option<EncoderChoice>,
+    /// 圧縮の強さ 1-9
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
+    pub effort: Option<u8>,
     /// 何が変換されるか表示するだけ
     #[arg(long)]
     pub dry_run: bool,
@@ -124,69 +134,66 @@ pub struct ConvertArgs {
     pub jobs: Option<usize>,
 }
 
-pub fn default_config_path() -> PathBuf {
-    match std::env::var_os("OIF_HOME") {
-        Some(home) => PathBuf::from(home).join("config.toml"),
-        None => paths::config_dir().join("config.toml"),
-    }
+#[derive(Args, Debug)]
+pub struct RestoreArgs {
+    /// 復元する .jxl ファイルまたはフォルダ
+    #[arg(required = true)]
+    pub paths: Vec<PathBuf>,
+    /// 復元に成功した .jxl を削除する
+    #[arg(long)]
+    pub delete_jxl: bool,
 }
 
-/// The standard log folder for the standard config; otherwise next to the config file. Derived
-/// from the config path only, so the CLI and the launchd/Run-key agent always agree.
-fn default_log_path(config_path: &Path) -> PathBuf {
-    if config_path == paths::config_dir().join("config.toml") {
-        paths::log_dir().join(format!("{APP_NAME}.log"))
-    } else {
-        config_path.with_file_name(format!("{APP_NAME}.log"))
-    }
-}
-
-fn lock_path(config_path: &Path) -> PathBuf {
-    config_path.with_file_name("agent.lock")
-}
-
-/// Exclusive lock held by the running agent; also used to detect it.
-pub fn agent_running(config_path: &Path) -> bool {
-    let Ok(f) = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path(config_path))
-    else {
-        return false;
-    };
-    match f.try_lock() {
-        Ok(()) => {
-            let _ = f.unlock();
-            false
-        }
-        Err(_) => true,
-    }
+#[derive(Args, Debug)]
+pub struct WorkerArgs {
+    #[arg(long)]
+    pub effort: u8,
+    #[arg(long)]
+    pub threads: usize,
+    #[arg(long, value_enum)]
+    pub original: OriginalPolicy,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub skip_if_larger: bool,
 }
 
 pub fn main() -> i32 {
+    // Opened from the settings app bundle (macOS) without arguments.
+    #[cfg(target_os = "macos")]
+    if std::env::args_os().len() == 1 && autostart::launched_from_app_bundle() {
+        return report(platform::ui::run_settings(&default_config_path()));
+    }
     let cli = Cli::parse();
     let config_path = cli.config.clone().unwrap_or_else(default_config_path);
     let result = match cli.command {
         Command::Install(args) => install(&config_path, args),
         Command::Uninstall { purge } => uninstall(&config_path, purge),
-        Command::Start => autostart::start().map(|_| println!("常駐を開始しました")),
-        Command::Stop => stop(&config_path).map(|_| println!("常駐を停止しました")),
+        Command::Settings => platform::ui::run_settings(&config_path),
+        Command::Start => autostart::start().map(|_| println!("監視を開始しました")),
+        Command::Stop => app::stop_agent(&config_path).map(|_| println!("監視を停止しました")),
         Command::Restart => {
-            stop(&config_path).and_then(|_| autostart::start()).map(|_| println!("常駐を再起動しました"))
+            app::stop_agent(&config_path).and_then(|_| autostart::start()).map(|_| println!("監視を再起動しました"))
         }
         Command::Status => status(&config_path),
-        Command::Run { log_stderr } => return run_agent(&config_path, log_stderr),
+        Command::Run { log_stderr, on_demand } => return run_agent(&config_path, log_stderr, on_demand),
         Command::Convert(args) => convert(&config_path, args),
+        Command::Restore(args) => restore_cmd(&config_path, args),
         Command::Config => show_config(&config_path),
+        Command::Viewer { install, open_store } => return viewer_cmd(install, open_store),
         Command::Worker(args) => {
             let ctx = ConvertCtx {
-                quality: args.quality,
-                speed: args.speed,
+                effort: args.effort,
+                threads: args.threads.max(1),
                 original: args.original,
                 skip_if_larger: args.skip_if_larger,
-                encoder: if args.encoder == "native" { EncoderKind::Native } else { EncoderKind::Rav1e },
                 dry_run: false,
             };
             return crate::scheduler::run_worker(&ctx);
         }
     };
+    report(result)
+}
+
+fn report(result: Result<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(e) => {
@@ -196,34 +203,40 @@ pub fn main() -> i32 {
     }
 }
 
-/// Entry point of the resident agent. Configuration problems exit with status 0 so launchd's
-/// KeepAlive does not restart us in a loop (which would wake the machine periodically).
-pub fn run_agent(config_path: &Path, log_stderr: bool) -> i32 {
+/// Entry point of the agent. Configuration problems exit with status 0 so launchd does not
+/// restart us in a loop (which would wake the machine periodically).
+pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
     if log_stderr {
         logger::init_stderr();
-    } else if let Err(e) = logger::init_file(default_log_path(config_path), false) {
+    } else if let Err(e) = logger::init_file(log_path_for(config_path), false) {
         eprintln!("ログファイルを開けません: {e}");
     }
-    let cfg = match Config::load(config_path) {
+    let cfg = match Config::load_or_create(config_path) {
         Ok(c) => c,
         Err(e) => {
             crate::error!("{e:#}");
             return 0;
         }
     };
-    let lock =
-        match fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path(config_path)) {
-            Ok(f) => f,
-            Err(e) => {
-                crate::error!("ロックファイルを開けません: {e}");
-                return 0;
-            }
-        };
+    let lock = match fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_path_for(config_path))
+    {
+        Ok(f) => f,
+        Err(e) => {
+            crate::error!("ロックファイルを開けません: {e}");
+            return 0;
+        }
+    };
     if lock.try_lock().is_err() {
         crate::info!("すでに起動しています");
         return 0;
     }
-    match daemon::run(cfg, config_path) {
+    let opts = daemon::Options { exit_when_idle: on_demand.then_some(ON_DEMAND_IDLE_EXIT) };
+    match daemon::run(cfg, config_path, opts) {
         Ok(()) => 0,
         Err(e) => {
             crate::error!("{e:#}");
@@ -269,8 +282,10 @@ impl Prompt {
         if self.input.read_line(&mut line).unwrap_or(0) == 0 {
             return default.to_string();
         }
-        let t = line.trim();
-        if t.is_empty() { default.to_string() } else { t.to_string() }
+        match line.trim() {
+            "" => default.to_string(),
+            t => t.to_string(),
+        }
     }
 
     fn confirm(&mut self, question: &str, default: bool) -> bool {
@@ -284,21 +299,18 @@ impl Prompt {
 }
 
 fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
-    let existing = Config::load(config_path).ok();
-    let mut cfg = existing.clone().unwrap_or_default();
+    let mut cfg = Config::load(config_path).unwrap_or_default();
     let mut prompt = Prompt::open(args.yes);
-    println!("{APP_NAME} v{VERSION} のセットアップ");
+    println!("{APP_NAME} v{VERSION} のセットアップ (JPEG XL・劣化なし)");
 
-    // Folders
     let folders: Vec<PathBuf> = if !args.folders.is_empty() {
         args.folders.clone()
+    } else if args.yes {
+        // Non-interactive (installer, upgrades): keep every configured folder.
+        cfg.folder_paths()
     } else {
-        let default = existing
-            .as_ref()
-            .and_then(|c| c.folders.first().cloned())
-            .map(|f| config::expand_tilde(&f))
-            .unwrap_or_else(paths::pictures_dir);
-        let answer = prompt.ask("監視するフォルダ", &default.to_string_lossy());
+        let default = cfg.folder_paths().into_iter().next().unwrap_or_else(paths::pictures_dir);
+        let answer = prompt.ask("変換するフォルダ", &default.to_string_lossy());
         vec![config::expand_tilde(&answer)]
     };
     for f in &folders {
@@ -309,8 +321,10 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
         }
     }
     cfg.folders = folders.iter().map(|f| config::contract_tilde(&paths::canonical(f).unwrap_or(f.clone()))).collect();
+    if !args.exclude.is_empty() {
+        cfg.exclude_folders = args.exclude.iter().map(|f| config::contract_tilde(f)).collect();
+    }
 
-    // Original policy
     cfg.original = match args.original {
         Some(p) => p,
         None => {
@@ -327,8 +341,6 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
             }
         }
     };
-
-    // Existing photos
     cfg.scan_existing = if args.scan_existing {
         true
     } else if args.new_only {
@@ -336,16 +348,14 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     } else {
         prompt.confirm("すでにフォルダにある写真も変換しますか? (いいえ = 新しく追加された写真のみ)", cfg.scan_existing)
     };
-    if let Some(q) = args.quality {
-        cfg.quality = q;
+    if let Some(e) = args.effort {
+        cfg.effort = e;
     }
     cfg.validate()?;
 
-    // Show what will happen to existing files before anything is deleted.
     if cfg.scan_existing {
         let filter = Filter::new(&cfg);
-        let mut count = 0u64;
-        let mut bytes = 0u64;
+        let (mut count, mut bytes) = (0u64, 0u64);
         for f in &folders {
             let root = paths::canonical(f)?;
             walk(&root, &root, &filter, &mut |p| {
@@ -354,59 +364,44 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
             });
         }
         println!("既存の写真: {count} 件 ({})", human(bytes));
-        if count > 0 && cfg.original != OriginalPolicy::Keep {
-            let q =
-                format!("これらを AVIF に変換し、元ファイルを「{}」します。よろしいですか?", cfg.original.describe());
-            if !args.yes && !prompt.confirm(&q, false) {
-                bail!("中止しました");
-            }
+        if count > 0
+            && cfg.original != OriginalPolicy::Keep
+            && !args.yes
+            && !prompt.confirm(
+                &format!(
+                    "劣化なしで JPEG XL に変換し、検証に成功した元ファイルを「{}」します。よろしいですか?",
+                    cfg.original.describe()
+                ),
+                false,
+            )
+        {
+            bail!("中止しました");
         }
-    } else if cfg.original == OriginalPolicy::Delete
-        && !args.yes
-        && !prompt.confirm("変換に成功した元ファイルは完全に削除されます (元に戻せません)。よろしいですか?", false)
-    {
-        bail!("中止しました");
     }
 
     cfg.save(config_path)?;
     println!("設定を保存しました: {}", config_path.display());
-
-    let exe = autostart::agent_executable()?;
-    let log_dir = default_log_path(config_path).parent().map(Path::to_path_buf).unwrap_or_else(paths::log_dir);
     if agent_running(config_path) {
-        let _ = stop(config_path);
+        app::stop_agent(config_path)?;
     }
-    autostart::install(&exe, config_path, &log_dir, !args.no_start)?;
+    app::register_agent(config_path, &cfg, !args.no_start)?;
     println!("自動起動に登録しました ({})", autostart::describe());
-    if !args.no_start {
-        println!("常駐を開始しました。ログ: {}", default_log_path(config_path).display());
-    }
     println!(
-        "エンコーダ: {}  / 監視: {}  / 元ファイル: {}  / 既存の写真: {}",
-        crate::encode::resolve(cfg.encoder),
+        "監視: {}  / 圧縮の強さ: {}  / 元ファイル: {}  / 既存の写真: {}",
         cfg.folders.join(", "),
+        app::effort_label(cfg.effort),
         cfg.original.describe(),
         if cfg.scan_existing { "変換する" } else { "新規のみ" }
     );
-    Ok(())
-}
-
-fn stop(config_path: &Path) -> Result<()> {
-    autostart::stop()?;
-    if agent_running(config_path) {
-        platform::instance::request_stop();
-        for _ in 0..100 {
-            if !agent_running(config_path) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
+    if let Some(hint) = platform::image::viewer_hint() {
+        println!("注意: {hint}");
     }
+    println!("設定はいつでも `{APP_NAME} settings` で変更できます。");
     Ok(())
 }
 
 fn uninstall(config_path: &Path, purge: bool) -> Result<()> {
-    stop(config_path)?;
+    app::stop_agent(config_path)?;
     autostart::uninstall()?;
     println!("自動起動を解除しました");
     if purge {
@@ -423,25 +418,20 @@ fn uninstall(config_path: &Path, purge: bool) -> Result<()> {
 /// config placed in a shared folder (e.g. `--config ~/Documents/x.toml`) cannot take it along.
 fn purge_files(config_path: &Path) -> Vec<PathBuf> {
     let state = state_path_for(config_path);
-    let log = default_log_path(config_path);
+    let log = log_path_for(config_path);
     let mut files = vec![
         config_path.to_path_buf(),
         config_path.with_extension("tmp"),
         state.clone(),
         state.with_extension("tmp"),
-        lock_path(config_path),
+        lock_path_for(config_path),
         log.clone(),
         log.with_extension("log.1"),
     ];
     if let Some(log_dir) = log.parent() {
         files.push(log_dir.join("launchd.log"));
     }
-    let mut removed = Vec::new();
-    for f in files {
-        if fs::remove_file(&f).is_ok() {
-            removed.push(f);
-        }
-    }
+    let removed: Vec<PathBuf> = files.into_iter().filter(|f| fs::remove_file(f).is_ok()).collect();
     for dir in [config_path.parent(), log.parent()].into_iter().flatten() {
         let _ = fs::remove_dir(dir); // fails unless empty
     }
@@ -449,16 +439,26 @@ fn purge_files(config_path: &Path) -> Vec<PathBuf> {
 }
 
 fn status(config_path: &Path) -> Result<()> {
-    println!("{APP_NAME} v{VERSION}");
+    println!("{APP_NAME} v{VERSION} (libjxl {})", crate::jxl::libjxl_version());
     println!("設定ファイル: {}", config_path.display());
-    println!("常駐: {}", if agent_running(config_path) { "動作中" } else { "停止中" });
-    println!("自動起動: {}", if autostart::is_registered() { autostart::describe() } else { "未登録".into() });
+    let running = agent_running(config_path);
+    let registered = autostart::is_registered();
+    let state = match (running, registered, cfg!(target_os = "macos")) {
+        (true, _, true) => "変換処理中",
+        (true, _, false) => "監視中",
+        (false, true, true) => "待機中 (launchd がフォルダを監視。プロセスは起動していません)",
+        (false, true, false) => "停止中",
+        (false, false, _) => "未登録",
+    };
+    println!("状態: {state}");
+    if registered {
+        println!("自動起動: {}", autostart::describe());
+    }
     match Config::load(config_path) {
         Ok(cfg) => {
             println!(
-                "エンコーダ: {} / 品質: {} / 元ファイル: {} / 既存の写真: {}",
-                crate::encode::resolve(cfg.encoder),
-                cfg.quality,
+                "圧縮の強さ: {} / 元ファイル: {} / 既存の写真: {}",
+                app::effort_label(cfg.effort),
                 cfg.original.describe(),
                 if cfg.scan_existing { "変換する" } else { "新規のみ" }
             );
@@ -467,16 +467,22 @@ fn status(config_path: &Path) -> Result<()> {
                     Ok(_) => "OK".to_string(),
                     Err(e) => format!("アクセスできません ({e})"),
                 };
-                println!("監視フォルダ: {}  [{access}]", f.display());
+                println!("変換するフォルダ: {}  [{access}]", f.display());
+            }
+            for f in cfg.exclude_folder_paths() {
+                println!("除外するフォルダ: {}", f.display());
             }
             let state = State::load(&state_path_for(config_path));
             if !state.skipped.is_empty() {
-                println!("スキップ中のファイル: {} 件", state.skipped.len());
+                println!("変換しなかったファイル: {} 件 (劣化なしに変換できない等)", state.skipped.len());
             }
         }
         Err(e) => println!("設定: {e:#}"),
     }
-    let log = default_log_path(config_path);
+    if let Some(hint) = platform::image::viewer_hint() {
+        println!("注意: {hint}");
+    }
+    let log = log_path_for(config_path);
     if let Ok(text) = fs::read_to_string(&log) {
         println!("--- ログ ({}) ---", log.display());
         let lines: Vec<&str> = text.lines().collect();
@@ -491,7 +497,7 @@ fn show_config(config_path: &Path) -> Result<()> {
     println!("# {}", config_path.display());
     match fs::read_to_string(config_path) {
         Ok(t) => print!("{t}"),
-        Err(_) => println!("(未作成。`{APP_NAME} install` で作成されます)"),
+        Err(_) => println!("(未作成。`{APP_NAME} install` または設定画面で作成されます)"),
     }
     Ok(())
 }
@@ -501,11 +507,8 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     if let Some(o) = args.original {
         cfg.original = o;
     }
-    if let Some(q) = args.quality {
-        cfg.quality = q;
-    }
-    if let Some(e) = args.encoder {
-        cfg.encoder = e;
+    if let Some(e) = args.effort {
+        cfg.effort = e;
     }
     cfg.validate()?;
     let filter = Filter::new(&cfg);
@@ -528,18 +531,18 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     let state = Arc::new(Mutex::new(State::load(&state_path)));
     // Manual runs retry files the agent skipped earlier.
     state.lock().unwrap_or_else(|e| e.into_inner()).skipped.clear();
-    let encoder = crate::encode::resolve(cfg.encoder);
-    let mut ctx = ConvertCtx::new(&cfg, encoder);
+    let jobs = args.jobs.unwrap_or(1).max(1);
+    let mut ctx = ConvertCtx::new(&cfg);
+    ctx.threads = (default_threads() * 2 / jobs).max(1); // user-initiated: use the whole machine
     ctx.dry_run = args.dry_run;
     println!(
-        "{} 件 / エンコーダ: {encoder} / 品質: {} / 元ファイル: {}{}",
+        "{} 件 / JPEG XL (劣化なし) / 圧縮の強さ: {} / 元ファイル: {}{}",
         files.len(),
-        cfg.quality,
+        app::effort_label(cfg.effort),
         cfg.original.describe(),
         if args.dry_run { " (dry run)" } else { "" }
     );
 
-    let jobs = args.jobs.unwrap_or_else(|| cfg.effective_jobs()).max(1);
     let queue = Mutex::new(files);
     let totals = Mutex::new((0usize, 0u64, 0u64, 0usize));
     std::thread::scope(|s| {
@@ -579,6 +582,99 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
         bail!("{failed} 件の変換に失敗しました");
     }
     Ok(())
+}
+
+fn viewer_cmd(install: bool, open_store: bool) -> i32 {
+    if platform::image::viewer_available() {
+        println!("JPEG XL を表示できます");
+        return 0;
+    }
+    if let Some(hint) = platform::image::viewer_hint() {
+        println!("{hint}");
+    }
+    if !install {
+        return 1;
+    }
+    #[cfg(windows)]
+    {
+        if !platform::image::viewer_extension_supported() {
+            return 3;
+        }
+        if platform::image::install_viewer_extension() {
+            println!("JPEG XL Image Extension をインストールしました");
+            return 0;
+        }
+        if open_store {
+            platform::image::open_store_page();
+        }
+        2
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = open_store;
+        3
+    }
+}
+
+fn restore_cmd(config_path: &Path, args: RestoreArgs) -> Result<()> {
+    let mut files = Vec::new();
+    for p in &args.paths {
+        let canon = paths::canonical(p).with_context(|| format!("見つかりません: {}", p.display()))?;
+        if canon.is_dir() {
+            collect_jxl(&canon, &mut files);
+        } else {
+            files.push(canon);
+        }
+    }
+    // Restored files must not be converted again: pause the agent, restore, and record them as
+    // skipped in its state before it resumes (it would otherwise see them as new photos).
+    let registered = config_path.exists() && autostart::is_registered();
+    if registered {
+        app::stop_agent(config_path)?;
+    }
+    let mut failed = 0;
+    let mut restored = Vec::new();
+    for f in &files {
+        match restore::restore_file(f, args.delete_jxl) {
+            Ok(out) => {
+                println!("復元: {} → {}", f.display(), out.display());
+                restored.push(out);
+            }
+            Err(e) => {
+                failed += 1;
+                eprintln!("失敗: {} ({e:#})", f.display());
+            }
+        }
+    }
+    if config_path.exists() && !restored.is_empty() {
+        let state_path = state_path_for(config_path);
+        let mut state = State::load(&state_path);
+        for out in &restored {
+            if let Some(fp) = crate::convert::Fingerprint::of_path(out) {
+                state.record_skip(out, fp, "restore で復元したファイル");
+            }
+        }
+        state.save(&state_path)?;
+    }
+    if registered {
+        autostart::start()?;
+    }
+    if failed > 0 {
+        bail!("{failed} 件の復元に失敗しました");
+    }
+    Ok(())
+}
+
+fn collect_jxl(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            collect_jxl(&p, out);
+        } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case(crate::convert::OUTPUT_EXTENSION)) {
+            out.push(p);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! Messages delivered to the daemon's single blocking receive loop.
+//! Messages delivered to the daemon's single blocking wait (see `platform::events`).
 
 use std::path::PathBuf;
 
@@ -20,6 +20,8 @@ pub enum Msg {
     JobFinished(PathBuf, Outcome),
     /// An encoder worker thread exited because the queue was empty.
     WorkerExited,
-    /// Stop requested (Windows named event, or watcher failure).
+    /// macOS: launchd delivered an FSEvents launch event (activity; keeps an on-demand run alive).
+    Wake,
+    /// Stop requested (Windows control pipe).
     Stop,
 }

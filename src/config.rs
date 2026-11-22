@@ -1,6 +1,7 @@
 //! TOML configuration.
 
 use std::fs;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -12,11 +13,11 @@ use crate::platform;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum OriginalPolicy {
-    /// Delete permanently.
+    /// 検証に成功したら完全に削除する
     Delete,
-    /// Move to the OS trash / recycle bin.
+    /// 検証に成功したらゴミ箱へ移動する
     Trash,
-    /// Keep the original next to the AVIF.
+    /// JPEG XL の隣にそのまま残す
     Keep,
 }
 
@@ -30,18 +31,12 @@ impl OriginalPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum EncoderChoice {
-    /// Best compression: rav1e (about 40% smaller than ImageIO at the same quality).
-    Auto,
-    /// OS encoder (macOS ImageIO): several times faster, larger files. Falls back to rav1e.
-    Native,
-    /// Built-in rav1e encoder.
-    Rav1e,
-}
+/// Compression strength = libjxl effort. Higher is smaller and slower; quality is never affected.
+pub const EFFORT_RANGE: RangeInclusive<u8> = 1..=9;
+pub const DEFAULT_EFFORT: u8 = 7;
 
-pub const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "bmp", "webp"];
+/// Formats that convert without loss. (HEIC and lossy WebP are lossy sources and are skipped.)
+pub const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"];
 
 /// RAW formats are never converted: re-encoding destroys sensor data.
 pub const RAW_EXTENSIONS: &[&str] = &[
@@ -52,60 +47,71 @@ pub const RAW_EXTENSIONS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    /// Folders to watch (recursively). `~` is expanded.
+    /// Folders to watch, recursively (whitelist). `~` is expanded.
     pub folders: Vec<String>,
+    /// Folders inside `folders` that are never touched (blacklist).
+    pub exclude_folders: Vec<String>,
+    /// Compression strength 1-9 (libjxl effort). Always lossless.
+    pub effort: u8,
     pub original: OriginalPolicy,
-    /// Convert photos that already exist when the agent starts (chosen at install time).
+    /// Convert photos that already exist when the agent starts.
     pub scan_existing: bool,
-    /// 1-100.
-    pub quality: u8,
-    /// rav1e speed preset, 1 (slowest/best) - 10 (fastest).
-    pub speed: u8,
-    pub encoder: EncoderChoice,
-    /// Parallel encodes. 0 = automatic.
+    /// Parallel encoder processes. 0 = automatic (1).
     pub jobs: usize,
     /// Seconds a file must stay unchanged before it is converted.
     pub settle_seconds: u64,
-    /// Keep the original (and drop the AVIF) when the AVIF would not be smaller.
+    /// Keep the original (and drop the JPEG XL) when the JPEG XL would not be smaller.
     pub skip_if_larger: bool,
     pub extensions: Vec<String>,
     /// Extra glob patterns (matched against each path component) to ignore.
     pub exclude: Vec<String>,
+    /// Keys from 0.1 (AVIF era); accepted so older files still load, then dropped on save.
+    /// Public only so struct-update syntax works outside this module.
+    #[doc(hidden)]
+    #[serde(rename = "encoder", skip_serializing)]
+    pub legacy_encoder: Option<toml::Value>,
+    #[doc(hidden)]
+    #[serde(rename = "quality", skip_serializing)]
+    pub legacy_quality: Option<toml::Value>,
+    #[doc(hidden)]
+    #[serde(rename = "speed", skip_serializing)]
+    pub legacy_speed: Option<toml::Value>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
-            folders: Vec::new(),
+            folders: vec![contract_tilde(&platform::paths::pictures_dir())],
+            exclude_folders: Vec::new(),
+            effort: DEFAULT_EFFORT,
             original: OriginalPolicy::Delete,
             scan_existing: false,
-            quality: 85,
-            speed: 6,
-            encoder: EncoderChoice::Auto,
             jobs: 0,
             settle_seconds: 2,
             skip_if_larger: true,
             extensions: DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect(),
             exclude: Vec::new(),
+            legacy_encoder: None,
+            legacy_quality: None,
+            legacy_speed: None,
         }
     }
 }
 
 const HEADER: &str = "\
-# optimize-image-folder の設定ファイル
-# 変更したら `optimize-image-folder restart` で反映されます。
+# optimize-image-folder の設定ファイル (設定画面からも変更できます)
+# 手で編集したら `optimize-image-folder restart` で反映されます。
 #
-# folders        監視するフォルダ (サブフォルダも対象)
-# original       変換後の元ファイル: \"delete\"(完全削除) / \"trash\"(ゴミ箱) / \"keep\"(残す)
-# scan_existing  起動時に既存の写真も変換するか
-# quality        画質 1-100
-# speed          rav1e の速度 1(高画質・遅い)-10(速い)
-# encoder        \"auto\"(=rav1e, 高圧縮) / \"native\"(OS のエンコーダ, 高速だがサイズ大) / \"rav1e\"
-# jobs           同時変換数 (0 = 自動)
-# settle_seconds ファイルの書き込みが止まってから変換するまでの秒数
-# skip_if_larger AVIF の方が大きくなる場合は元ファイルを残す
-# extensions     対象の拡張子 (RAW は指定できません)
-# exclude        除外するフォルダ/ファイル名のパターン (* と ? が使えます)
+# folders         変換するフォルダ (サブフォルダも対象)
+# exclude_folders 変換しないフォルダ (folders の中で除外したい場所)
+# effort          圧縮の強さ 1(速い)-9(小さい) 既定 7。画質は常に劣化なし
+# original        変換後の元ファイル: \"delete\"(完全削除) / \"trash\"(ゴミ箱) / \"keep\"(残す)
+# scan_existing   起動時に既存の写真も変換するか
+# jobs            同時変換数 (0 = 自動)
+# settle_seconds  ファイルの書き込みが止まってから変換するまでの秒数
+# skip_if_larger  JPEG XL の方が大きくなる場合は元ファイルを残す
+# extensions      対象の拡張子 (RAW は指定できません)
+# exclude         除外するフォルダ/ファイル名のパターン (* と ? が使えます)
 
 ";
 
@@ -118,6 +124,16 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Loads the file, or returns (and writes) the defaults when it does not exist yet.
+    pub fn load_or_create(path: &Path) -> Result<Config> {
+        if path.exists() {
+            return Config::load(path);
+        }
+        let cfg = Config::default();
+        cfg.save(path)?;
+        Ok(cfg)
+    }
+
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate()?;
         let body = toml::to_string_pretty(self).context("設定のシリアライズに失敗")?;
@@ -125,19 +141,21 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if !(1..=100).contains(&self.quality) {
-            bail!("quality は 1〜100 で指定してください (現在 {})", self.quality);
-        }
-        if !(1..=10).contains(&self.speed) {
-            bail!("speed は 1〜10 で指定してください (現在 {})", self.speed);
+        if !EFFORT_RANGE.contains(&self.effort) {
+            bail!(
+                "effort (圧縮の強さ) は {}〜{} で指定してください (現在 {})",
+                EFFORT_RANGE.start(),
+                EFFORT_RANGE.end(),
+                self.effort
+            );
         }
         for ext in &self.extensions {
             let e = ext.trim_start_matches('.').to_ascii_lowercase();
             if RAW_EXTENSIONS.contains(&e.as_str()) {
                 bail!("RAW 形式 (.{e}) は変換対象にできません");
             }
-            if e == "avif" {
-                bail!(".avif は変換対象にできません");
+            if matches!(e.as_str(), "jxl" | "heic" | "heif" | "avif") {
+                bail!(".{e} は変換対象にできません (劣化なしに変換できない、または変換済みの形式)");
             }
         }
         Ok(())
@@ -147,13 +165,14 @@ impl Config {
         self.folders.iter().map(|f| expand_tilde(f)).collect()
     }
 
+    pub fn exclude_folder_paths(&self) -> Vec<PathBuf> {
+        self.exclude_folders.iter().map(|f| expand_tilde(f)).collect()
+    }
+
+    /// One encoder process at a time by default: libaom already uses several threads, and a
+    /// single process keeps peak memory low.
     pub fn effective_jobs(&self) -> usize {
-        if self.jobs > 0 {
-            return self.jobs;
-        }
-        // Each rav1e encode of a 12 MP photo peaks around 0.7 GB, so stay modest by default.
-        let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
-        (cpus / 2).clamp(1, 2)
+        self.jobs.max(1)
     }
 }
 
@@ -170,14 +189,11 @@ pub fn expand_tilde(s: &str) -> PathBuf {
 /// Store a path with `~` when it is under the home directory, for a portable config file.
 pub fn contract_tilde(p: &Path) -> String {
     let home = platform::paths::home_dir();
-    if let Ok(rest) = p.strip_prefix(&home) {
-        if rest.as_os_str().is_empty() {
-            return "~".into();
-        }
-        let sep = std::path::MAIN_SEPARATOR;
-        return format!("~{sep}{}", rest.display());
+    match p.strip_prefix(&home) {
+        Ok(rest) if rest.is_empty() => "~".into(),
+        Ok(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()),
+        Err(_) => p.display().to_string(),
     }
-    p.display().to_string()
 }
 
 /// Refuse folders where deleting originals would be catastrophic.
@@ -225,27 +241,55 @@ mod tests {
     fn roundtrip_and_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let cfg = Config { folders: vec!["~/Pictures".into()], scan_existing: true, ..Config::default() };
+        let cfg = Config {
+            folders: vec!["~/Pictures".into()],
+            exclude_folders: vec!["~/Pictures/private".into()],
+            scan_existing: true,
+            ..Config::default()
+        };
         cfg.save(&path).unwrap();
-        let loaded = Config::load(&path).unwrap();
-        assert_eq!(cfg, loaded);
+        assert_eq!(Config::load(&path).unwrap(), cfg);
 
         fs::write(&path, "folders = [\"/x\"]\n").unwrap();
         let partial = Config::load(&path).unwrap();
         assert_eq!(partial.original, OriginalPolicy::Delete);
-        assert_eq!(partial.quality, 85);
+        assert_eq!(partial.effort, DEFAULT_EFFORT);
+        assert!(partial.exclude_folders.is_empty());
         assert!(!partial.scan_existing);
     }
 
     #[test]
-    fn rejects_raw_and_bad_ranges() {
-        let mut cfg = Config::default();
-        cfg.extensions.push("CR3".into());
-        assert!(cfg.validate().is_err());
-        let cfg = Config { quality: 0, ..Config::default() };
-        assert!(cfg.validate().is_err());
-        let cfg = Config { speed: 11, ..Config::default() };
-        assert!(cfg.validate().is_err());
+    fn default_watches_the_pictures_folder() {
+        let cfg = Config::default();
+        assert_eq!(cfg.folder_paths(), vec![platform::paths::pictures_dir()]);
+        assert_eq!(cfg.effort, 7);
+    }
+
+    #[test]
+    fn effort_is_limited_to_1_through_9() {
+        for (e, ok) in [(0, false), (1, true), (7, true), (9, true), (10, false)] {
+            assert_eq!(Config { effort: e, ..Config::default() }.validate().is_ok(), ok, "effort {e}");
+        }
+    }
+
+    #[test]
+    fn rejects_raw_and_lossy_sources() {
+        for ext in ["CR3", "heic", "jxl"] {
+            let mut cfg = Config::default();
+            cfg.extensions.push(ext.into());
+            assert!(cfg.validate().is_err(), "{ext}");
+        }
+    }
+
+    #[test]
+    fn avif_era_keys_are_accepted_and_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "folders = [\"/x\"]\nencoder = \"rav1e\"\nquality = 85\nspeed = 6\n").unwrap();
+        let cfg = Config::load(&path).unwrap();
+        cfg.save(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("encoder =") && !text.contains("quality =") && !text.contains("speed ="));
     }
 
     #[test]

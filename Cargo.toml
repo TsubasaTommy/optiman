@@ -1,18 +1,15 @@
 [package]
 name = "optimize-image-folder"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.100"
 license = "MIT"
-description = "Resident photo-folder watcher that converts photos to AV1 (AVIF) with zero idle CPU, using native OS APIs"
+description = "Converts photo folders to JPEG XL without any quality loss (reversible JPEG recompression, lossless PNG/TIFF/BMP), with zero resources while idle"
 repository = "https://github.com/TsubasaTommy/optimize-image-folder"
 readme = "README.md"
 default-run = "optimize-image-folder"
-
-[features]
-default = ["asm"]
-# SIMD assembly for rav1e (needs nasm on x86_64)
-asm = ["rav1e/asm"]
+build = "build.rs"
+exclude = ["third_party/libjxl/testdata", "tests/fixtures/*.heic"]
 
 [lib]
 name = "oif"
@@ -27,38 +24,103 @@ name = "optimize-image-folder-agent"
 path = "src/bin/agent.rs"
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
 strip = true
 
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "allow"
+ptr_as_ptr = "warn"
+cast_lossless = "warn"
+
+[lints.cargo]
+unused_dependencies = "deny"
+
 [dependencies]
 anyhow = "1.0.104"
-avif-parse = "2"
-avif-serialize = "0.8.9"
 clap = { version = "4.6.9", features = ["derive"] }
-rav1e = { version = "0.8.1", default-features = false }
+jxl = "0.8.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "objc2-core-foundation",
+    "std",
+    "NSAlert",
+    "NSAppearance",
+    "NSApplication",
+    "NSBitmapImageRep",
+    "NSButton",
+    "NSCell",
+    "NSControl",
+    "NSGraphics",
+    "NSImageRep",
+    "NSOpenPanel",
+    "NSPanel",
+    "NSParagraphStyle",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSSavePanel",
+    "NSScrollView",
+    "NSSlider",
+    "NSTableColumn",
+    "NSTableHeaderView",
+    "NSTableView",
+    "NSText",
+    "NSTextField",
+    "NSUserInterfaceItemIdentification",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSData",
+    "NSDictionary",
+    "NSGeometry",
+    "NSNotification",
+    "NSObjCRuntime",
+    "NSObject",
+    "NSString",
+    "NSURL",
+] }
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_IO",
+    "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
     "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_Variant",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[build-dependencies]
+cmake = "0.1.58"

@@ -1,12 +1,13 @@
-//! Windows: ReadDirectoryChangesW + IOCP, WIC, Shell, registry, power throttling.
+//! Windows: one I/O completion port (ReadDirectoryChangesW, control pipe, worker messages),
+//! WIC, Shell, registry, power throttling and a Win32 settings window.
 
 pub mod autostart;
+pub mod events;
 pub mod fsutil;
 pub mod image;
-pub mod instance;
 pub mod paths;
 pub mod power;
-pub mod watch;
+pub mod ui;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;

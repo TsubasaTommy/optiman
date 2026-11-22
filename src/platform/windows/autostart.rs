@@ -1,4 +1,5 @@
-//! Per-user autostart through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+//! Per-user autostart through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The agent
+//! is a GUI-subsystem executable (no console window) and reads the folders from the config.
 
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -12,22 +13,28 @@ use windows::Win32::System::Registry::{
 };
 use windows::core::{PCWSTR, w};
 
-use super::instance;
-
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const VALUE_NAME: PCWSTR = w!("optimize-image-folder");
-const AGENT_EXE: &str = "optimize-image-folder-agent.exe";
+pub const AGENT_EXE: &str = "optimize-image-folder-agent.exe";
 
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
-/// The windowless agent shipped next to the CLI.
+/// What the agent needs to know to be registered (the folders are read from the config).
+pub struct AgentSpec<'a> {
+    pub exe: &'a Path,
+    pub config: &'a Path,
+    pub log_dir: &'a Path,
+    pub folders: &'a [PathBuf],
+}
+
+/// The windowless agent shipped next to the CLI (or this executable, if it is the agent).
 pub fn agent_executable() -> Result<PathBuf> {
     let exe = std::env::current_exe().context("実行ファイルのパスを取得できません")?;
     let agent = exe.with_file_name(AGENT_EXE);
     if !agent.exists() {
-        bail!("{} が見つかりません ({} と同じフォルダに置いてください)", AGENT_EXE, exe.display());
+        bail!("{AGENT_EXE} が見つかりません ({} と同じフォルダに置いてください)", exe.display());
     }
     Ok(agent)
 }
@@ -50,11 +57,10 @@ fn with_run_key<T>(f: impl FnOnce(HKEY) -> Result<T>) -> Result<T> {
     unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, None, KEY_SET_VALUE, &mut key) }
         .ok()
         .context("レジストリ (Run キー) を開けません")?;
-    let r = f(key);
-    unsafe {
-        let _ = RegCloseKey(key);
-    }
-    r
+    let _close = std::mem::DropGuard::new(key, |k| unsafe {
+        let _ = RegCloseKey(k);
+    });
+    f(key)
 }
 
 fn registered_command() -> Option<String> {
@@ -66,7 +72,7 @@ fn registered_command() -> Option<String> {
             return None;
         }
         let mut buf = vec![0u16; (size as usize).div_ceil(2)];
-        if RegGetValueW(
+        RegGetValueW(
             HKEY_CURRENT_USER,
             RUN_KEY,
             VALUE_NAME,
@@ -75,10 +81,8 @@ fn registered_command() -> Option<String> {
             Some(buf.as_mut_ptr().cast()),
             Some(&mut size),
         )
-        .is_err()
-        {
-            return None;
-        }
+        .ok()
+        .ok()?;
         let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
         Some(String::from_utf16_lossy(&buf[..end]))
     }
@@ -88,14 +92,13 @@ pub fn is_registered() -> bool {
     registered_command().is_some()
 }
 
-pub fn install(exe: &Path, config: &Path, _log_dir: &Path, start_now: bool) -> Result<()> {
-    let cmd = command_line(exe, config);
-    let data: Vec<u8> = cmd.encode_utf16().chain(std::iter::once(0)).flat_map(|u| u.to_le_bytes()).collect();
+/// Writes the Run entry and starts the agent if asked (the caller stops a running one first).
+pub fn install(spec: &AgentSpec<'_>, start_now: bool) -> Result<()> {
+    std::fs::create_dir_all(spec.log_dir).ok();
+    let cmd = command_line(spec.exe, spec.config);
+    let data: Vec<u8> = cmd.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect();
     with_run_key(|key| {
-        unsafe { RegSetValueExW(key, VALUE_NAME, None, REG_SZ, Some(&data)) }
-            .ok()
-            .context("自動起動を登録できません")?;
-        Ok(())
+        unsafe { RegSetValueExW(key, VALUE_NAME, None, REG_SZ, Some(&data)) }.ok().context("自動起動を登録できません")
     })?;
     if start_now {
         start()?;
@@ -122,8 +125,9 @@ pub fn start() -> Result<()> {
     Ok(())
 }
 
+/// Asks the running agent to exit through its control pipe.
 pub fn stop() -> Result<()> {
-    instance::request_stop();
+    super::events::request_stop();
     Ok(())
 }
 
@@ -148,8 +152,7 @@ mod tests {
 
     #[test]
     fn command_line_roundtrip() {
-        let exe =
-            Path::new(r"C:\Users\a b\AppData\Local\Programs\optimize-image-folder\optimize-image-folder-agent.exe");
+        let exe = Path::new(r"C:\Users\a b\AppData\Local\Programs\OptimizeImageFolder\optimize-image-folder-agent.exe");
         let cfg = Path::new(r"C:\Users\a b\AppData\Roaming\optimize-image-folder\config.toml");
         let (e, c) = parse_command_line(&command_line(exe, cfg)).unwrap();
         assert_eq!(e, exe);

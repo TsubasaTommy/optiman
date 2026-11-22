@@ -6,13 +6,13 @@
 //! the agent exits again once it is idle.
 
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use anyhow::Result;
 
 use super::watch::Watcher;
-use crate::event::Msg;
+use crate::event::{Msg, Wait};
 
 #[derive(Clone)]
 pub struct Notifier(Sender<Msg>);
@@ -21,12 +21,6 @@ impl Notifier {
     pub fn send(&self, msg: Msg) -> bool {
         self.0.send(msg).is_ok()
     }
-}
-
-pub enum Wait {
-    Msg(Msg),
-    Timeout,
-    Closed,
 }
 
 pub struct EventLoop {
@@ -57,14 +51,11 @@ impl EventLoop {
         super::xpc::consume_fsevents_launch_events(Notifier(self.tx.clone()));
     }
 
+    /// The loop holds a sender itself, so the channel never disconnects.
     pub fn wait(&mut self, timeout: Option<Duration>) -> Wait {
         match timeout {
-            None => self.rx.recv().map_or(Wait::Closed, Wait::Msg),
-            Some(t) => match self.rx.recv_timeout(t) {
-                Ok(m) => Wait::Msg(m),
-                Err(RecvTimeoutError::Timeout) => Wait::Timeout,
-                Err(RecvTimeoutError::Disconnected) => Wait::Closed,
-            },
+            None => self.rx.recv().map_or(Wait::Timeout, Wait::Msg),
+            Some(t) => self.rx.recv_timeout(t).map_or(Wait::Timeout, Wait::Msg),
         }
     }
 

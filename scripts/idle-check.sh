@@ -36,7 +36,7 @@ sleep 3
 to_cs() { awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; printf "%d", s * 100 + 0.5 }'; }
 cpu() { ps -o time= -p "$PID" | tr -d ' ' | to_cs; }
 threads() {
-  if [ "$(uname)" = "Darwin" ]; then ps -M -p "$PID" | tail -n +2 | wc -l | tr -d ' '; else ls "/proc/$PID/task" | wc -l; fi
+  ps -M -p "$PID" | tail -n +2 | wc -l | tr -d ' '
 }
 
 BEFORE=$(cpu)
@@ -49,10 +49,8 @@ echo "idle window       : ${SECS}s"
 echo "CPU time consumed : $((DELTA * 10)) ms"
 echo "threads           : $(threads)"
 echo "resident memory   : $((RSS_KB / 1024)) MB"
-if [ "$(uname)" = "Darwin" ]; then
-  # Idle wake-ups over a 5-second sample (should be 0).
-  top -l 2 -s 5 -pid "$PID" -stats pid,cpu,idlew,threads 2>/dev/null | tail -1 | awk '{ print "top (5s sample)   : cpu " $2 "%, idle wakeups " $3 }'
-fi
+# Idle wake-ups over a 5-second sample (should be 0).
+top -l 2 -s 5 -pid "$PID" -stats pid,cpu,idlew,threads 2>/dev/null | tail -1 | awk '{ print "top (5s sample)   : cpu " $2 "%, idle wakeups " $3 }'
 sed -n '1,20p' "$WORK/agent.log"
 
 if [ "$DELTA" -gt "$MAX_CS" ]; then

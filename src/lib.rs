@@ -1,8 +1,8 @@
-//! Optiman: converts photos in watched folders to JPEG XL without any loss.
+//! Optiman: converts photos in watched folders to JPEG XL.
 //!
-//! - JPEG is recompressed losslessly (the original file can be rebuilt byte for byte);
-//!   PNG/TIFF/BMP/lossless WebP are encoded losslessly. Every result is verified before the
-//!   original is touched.
+//! - JPEG is recompressed losslessly (the original file can be rebuilt byte for byte).
+//!   PNG/TIFF/BMP/lossless WebP are encoded losslessly by default, or lossily at a chosen
+//!   quality level. Every result is verified before the original is touched.
 //! - Zero resources while idle: on macOS launchd starts the agent only when a watched folder
 //!   changes; on Windows a single thread waits in an I/O completion port.
 

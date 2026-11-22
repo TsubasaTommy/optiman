@@ -39,16 +39,8 @@ impl Watcher {
         if roots.is_empty() {
             bail!("監視するフォルダがありません");
         }
-        let paths: Vec<Cf> = roots.iter().map(|r| cf_string(&r.to_string_lossy())).collect();
-        let ptrs: Vec<*const c_void> = paths.iter().map(|p| p.ptr()).collect();
+        let array = cf_path_array(roots).ok_or_else(|| anyhow::anyhow!("CFArrayCreate に失敗"))?;
         unsafe {
-            let array = Cf::from_create(CFArrayCreate(
-                kCFAllocatorDefault,
-                ptrs.as_ptr(),
-                ptrs.len() as CFIndex,
-                &kCFTypeArrayCallBacks,
-            ))
-            .ok_or_else(|| anyhow::anyhow!("CFArrayCreate に失敗"))?;
             let ctx = Box::into_raw(Box::new(CallbackCtx { tx }));
             let mut context = FSEventStreamContext {
                 version: 0,
@@ -74,18 +66,10 @@ impl Watcher {
                 bail!("FSEventStreamCreate に失敗しました");
             }
             // Excluded subtrees (blacklist, Photos libraries) never wake us.
-            let excluded: Vec<Cf> =
-                exclude.iter().take(MAX_EXCLUSIONS).map(|p| cf_string(&p.to_string_lossy())).collect();
-            if !excluded.is_empty() {
-                let ptrs: Vec<*const c_void> = excluded.iter().map(|p| p.ptr()).collect();
-                if let Some(arr) = Cf::from_create(CFArrayCreate(
-                    kCFAllocatorDefault,
-                    ptrs.as_ptr(),
-                    ptrs.len() as CFIndex,
-                    &kCFTypeArrayCallBacks,
-                )) {
-                    FSEventStreamSetExclusionPaths(stream, arr.ptr());
-                }
+            if !exclude.is_empty()
+                && let Some(arr) = cf_path_array(&exclude[..exclude.len().min(MAX_EXCLUSIONS)])
+            {
+                FSEventStreamSetExclusionPaths(stream, arr.ptr());
             }
             let queue = dispatch_queue_create(c"io.github.tsubasatommy.optiman.fsevents".as_ptr(), std::ptr::null());
             FSEventStreamSetDispatchQueue(stream, queue);

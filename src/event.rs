@@ -25,3 +25,9 @@ pub enum Msg {
     /// Stop requested (Windows control pipe).
     Stop,
 }
+
+/// Result of one wait on the event loop.
+pub enum Wait {
+    Msg(Msg),
+    Timeout,
+}

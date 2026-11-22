@@ -16,11 +16,11 @@ use anyhow::{Result, bail};
 
 use crate::config::Config;
 use crate::convert::{ConvertCtx, Fingerprint, Outcome};
-use crate::event::Msg;
+use crate::event::{Msg, Wait};
 use crate::filter::Filter;
-use crate::platform::events::{self, EventLoop, Wait};
+use crate::platform::events::{self, EventLoop};
 use crate::platform::{self, fsutil};
-use crate::scheduler::{Obs, Pool, Probe, Scheduler, WorkerSpec};
+use crate::scheduler::{Pool, Probe, Scheduler, WorkerSpec};
 use crate::state::{State, now_unix};
 use crate::walk::walk;
 use crate::{error, info, warn};
@@ -72,16 +72,16 @@ fn watcher_exclusions(roots: &[PathBuf], filter: &Filter) -> Vec<PathBuf> {
     out
 }
 
-fn observe(path: &Path) -> Option<Obs> {
+fn observe(path: &Path) -> Option<Fingerprint> {
     let md = fs::symlink_metadata(path).ok()?;
-    md.is_file().then(|| Obs { size: md.len(), mtime: md.modified().unwrap_or(UNIX_EPOCH) })
+    md.is_file().then(|| Fingerprint::of(&md))
 }
 
 fn probe(path: &Path) -> Probe {
     match observe(path) {
         None => Probe::Gone,
-        Some(obs) if fsutil::writer_active(path) => Probe::Busy(obs),
-        Some(obs) => Probe::Stable(obs),
+        Some(fp) if fsutil::writer_active(path) => Probe::Busy(fp),
+        Some(fp) => Probe::Stable(fp),
     }
 }
 
@@ -150,7 +150,7 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     let mut d = Daemon {
         filter,
         sched: Scheduler::new(Duration::from_secs(cfg.settle_seconds)),
-        pool: Pool::new(cfg.effective_jobs(), Arc::new(ctx), spec, notifier),
+        pool: Pool::new(cfg.jobs, Arc::new(ctx), spec, notifier),
         roots,
         state,
         state_path,
@@ -193,8 +193,7 @@ impl Daemon {
             if threshold.is_some_and(|t| fsutil::arrival_time(&md) < t) {
                 continue;
             }
-            let obs = Obs { size: md.len(), mtime: md.modified().unwrap_or(UNIX_EPOCH) };
-            self.sched.on_changed(path, now, Some(obs));
+            self.sched.on_changed(path, now, Some(Fingerprint::of(&md)));
             queued += 1;
         }
         if queued > 1 {
@@ -285,7 +284,6 @@ impl Daemon {
             // No deadline: block until the OS reports something. This is the idle state.
             let wait = ev.wait(deadline.map(|d| d.saturating_duration_since(Instant::now())));
             match wait {
-                Wait::Closed => return,
                 Wait::Timeout => {}
                 Wait::Msg(msg) => {
                     if !matches!(msg, Msg::HistoryDone | Msg::WorkerExited) {
@@ -302,11 +300,9 @@ impl Daemon {
                     }
                 }
             }
-            for path in self.sched.take_ready(Instant::now(), &probe) {
+            for (path, fp) in self.sched.take_ready(Instant::now(), &probe) {
                 // Files skipped earlier are retried only after they change.
-                let skipped = Fingerprint::of_path(&path)
-                    .is_some_and(|fp| self.state.lock().unwrap_or_else(|e| e.into_inner()).is_skipped(&path, fp));
-                if skipped {
+                if self.state.lock().unwrap_or_else(|e| e.into_inner()).is_skipped(&path, fp) {
                     self.sched.finished(&path);
                 } else {
                     self.pool.submit(path);
@@ -349,7 +345,7 @@ impl Daemon {
                     }
                 }
                 Wait::Msg(_) => {}
-                Wait::Timeout | Wait::Closed => break,
+                Wait::Timeout => break,
             }
         }
         let st = self.state.lock().unwrap_or_else(|e| e.into_inner());

@@ -55,14 +55,12 @@ impl State {
     pub fn is_skipped(&self, path: &Path, fp: Fingerprint) -> bool {
         self.skipped
             .get(&path.to_string_lossy().into_owned())
-            .is_some_and(|e| e.size == fp.size && e.mtime_ns == fp.mtime_ns)
+            .is_some_and(|e| Fingerprint { size: e.size, mtime_ns: e.mtime_ns } == fp)
     }
 
     pub fn record_skip(&mut self, path: &Path, fp: Fingerprint, reason: &str) {
-        self.skipped.insert(
-            path.to_string_lossy().into_owned(),
-            SkipEntry { size: fp.size, mtime_ns: fp.mtime_ns, reason: reason.to_string() },
-        );
+        let entry = SkipEntry { size: fp.size, mtime_ns: fp.mtime_ns, reason: reason.to_string() };
+        self.skipped.insert(path.to_string_lossy().into_owned(), entry);
     }
 
     /// Drop entries whose file no longer exists, so the map does not grow forever.

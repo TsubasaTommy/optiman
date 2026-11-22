@@ -1,6 +1,7 @@
 //! Undo a conversion: rebuild the original file from a JPEG XL made by this tool.
 //! - JPEG origin: the original JPEG, byte for byte (libjxl JPEG reconstruction).
-//! - Lossless origin: a PNG with exactly the same pixels and colour profile (OS encoder).
+//! - Other origins: a PNG with the decoded pixels and colour profile (OS encoder); identical to
+//!   the source when it was converted losslessly.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};

@@ -24,6 +24,8 @@ const ALPHA_PREMUL_LAST: u32 = 1;
 const ALPHA_PREMUL_FIRST: u32 = 2;
 const ALPHA_LAST: u32 = 3;
 const ALPHA_FIRST: u32 = 4;
+#[cfg(test)]
+const ALPHA_SKIP_LAST: u32 = 5;
 const ALPHA_SKIP_FIRST: u32 = 6;
 
 fn unsupported(m: impl Into<String>) -> EncodeError {
@@ -51,7 +53,8 @@ unsafe fn color_info(space: CGColorSpaceRef) -> ColorInfo {
 /// Decodes the first image exactly as stored: original orientation, colour space and bit depth.
 pub fn decode(data: &[u8]) -> Result<SourceImage, EncodeError> {
     unsafe {
-        let cfdata = cf_data(data);
+        // ImageIO reads the file bytes in place; `data` outlives every CF object made here.
+        let cfdata = cf_data_borrowed(data);
         let src = Cf::from_create(CGImageSourceCreateWithData(cfdata.ptr(), std::ptr::null()))
             .ok_or_else(|| unsupported("画像として読み込めません (未対応の形式)"))?;
         if CGImageSourceGetStatus(src.mut_ptr()) < 0 {
@@ -231,7 +234,7 @@ pub fn encode_png(img: &crate::jxl::Decoded) -> Result<Vec<u8>, String> {
         }
         .or_else(|| Cf::from_create(CGColorSpaceCreateWithName(kCGColorSpaceSRGB)))
         .ok_or("色空間を作成できません")?;
-        let data = cf_data(&img.pixels);
+        let data = cf_data_borrowed(&img.pixels);
         let provider =
             Cf::from_create(CGDataProviderCreateWithCFData(data.ptr())).ok_or("CGDataProvider を作成できません")?;
         let byte_order = if bpc == 16 { BYTE_ORDER_16_LITTLE } else { 0 };
@@ -282,7 +285,7 @@ mod tests {
         let l = layout(8, 24, ALPHA_NONE, 0, false);
         assert_eq!(l.to_rgba(&[1, 2, 3, 4, 5, 6]).unwrap(), vec![1, 2, 3, 255, 4, 5, 6, 255]);
         // RGBX: X ignored
-        let l = layout(8, 32, 5, 0, false); // kCGImageAlphaNoneSkipLast
+        let l = layout(8, 32, ALPHA_SKIP_LAST, 0, false);
         assert_eq!(l.to_rgba(&[1, 2, 3, 77, 4, 5, 6, 77]).unwrap(), vec![1, 2, 3, 255, 4, 5, 6, 255]);
         // Grey 8
         let l = layout(8, 8, ALPHA_NONE, 0, true);

@@ -22,6 +22,19 @@ pub enum OriginalPolicy {
 }
 
 impl OriginalPolicy {
+    /// The name used in the config file, on the command line and between processes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OriginalPolicy::Delete => "delete",
+            OriginalPolicy::Trash => "trash",
+            OriginalPolicy::Keep => "keep",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<OriginalPolicy> {
+        <OriginalPolicy as clap::ValueEnum>::from_str(s, false).ok()
+    }
+
     pub fn describe(self) -> &'static str {
         match self {
             OriginalPolicy::Delete => "完全に削除",
@@ -52,6 +65,16 @@ pub enum Quality {
 
 impl Quality {
     pub const ALL: [Quality; 4] = [Quality::Lossless, Quality::High, Quality::Medium, Quality::Low];
+
+    /// The name used in the config file, on the command line and between processes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Quality::Lossless => "lossless",
+            Quality::High => "high",
+            Quality::Medium => "medium",
+            Quality::Low => "low",
+        }
+    }
 
     /// libjxl's JPEG-style quality for a lossy encode (`None` = lossless). All three stay inside
     /// libjxl's recommended range (distance 1.0, 1.9 and 2.8).
@@ -110,7 +133,7 @@ pub struct Config {
     pub original: OriginalPolicy,
     /// Convert photos that already exist when the agent starts.
     pub scan_existing: bool,
-    /// Parallel encoder processes. 0 = automatic (1).
+    /// Parallel encoder processes (at least 1).
     pub jobs: usize,
     /// Seconds a file must stay unchanged before it is converted.
     pub settle_seconds: u64,
@@ -130,7 +153,7 @@ impl Default for Config {
             quality: Quality::Lossless,
             original: OriginalPolicy::Delete,
             scan_existing: false,
-            jobs: 0,
+            jobs: 1,
             settle_seconds: 2,
             skip_if_larger: true,
             extensions: DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect(),
@@ -150,7 +173,7 @@ const HEADER: &str = "\
 #                 高・中・低は非可逆で、元の画質には戻せない。JPEG はどれでも劣化なし
 # original        変換後の元ファイル: \"delete\"(完全削除) / \"trash\"(ゴミ箱) / \"keep\"(残す)
 # scan_existing   起動時に既存の写真も変換するか
-# jobs            同時変換数 (0 = 自動)
+# jobs            同時に変換するファイル数 (既定 1)
 # settle_seconds  ファイルの書き込みが止まってから変換するまでの秒数
 # skip_if_larger  JPEG XL の方が大きくなる場合は元ファイルを残す
 # extensions      対象の拡張子 (RAW は指定できません)
@@ -210,12 +233,6 @@ impl Config {
 
     pub fn exclude_folder_paths(&self) -> Vec<PathBuf> {
         self.exclude_folders.iter().map(|f| expand_tilde(f)).collect()
-    }
-
-    /// One encoder process at a time by default: libaom already uses several threads, and a
-    /// single process keeps peak memory low.
-    pub fn effective_jobs(&self) -> usize {
-        self.jobs.max(1)
     }
 }
 

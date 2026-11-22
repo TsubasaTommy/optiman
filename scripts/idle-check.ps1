@@ -7,7 +7,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$work = Join-Path ([IO.Path]::GetTempPath()) ("oif-idle-" + [guid]::NewGuid())
+$work = Join-Path ([IO.Path]::GetTempPath()) ("optiman-idle-" + [guid]::NewGuid())
 $home_ = Join-Path $work "home"
 $photos = Join-Path $work "photos"
 New-Item -ItemType Directory -Force -Path $home_, $photos | Out-Null

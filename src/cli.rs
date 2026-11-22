@@ -11,7 +11,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::app::{self, agent_running, default_config_path, lock_path_for, log_path_for};
 use crate::config::{self, Config, OriginalPolicy, Quality};
-use crate::convert::{ConvertCtx, Outcome, convert_file, default_threads, human};
+use crate::convert::{ConvertCtx, Outcome, convert_guarded, default_threads, human};
 use crate::daemon::{self, state_path_for};
 use crate::filter::Filter;
 use crate::platform::{self, autostart, paths};
@@ -158,10 +158,10 @@ pub struct WorkerArgs {
     pub threads: usize,
     #[arg(long, value_enum)]
     pub original: OriginalPolicy,
+    #[arg(long, value_enum)]
+    pub quality: Quality,
     #[arg(long, action = clap::ArgAction::Set)]
     pub skip_if_larger: bool,
-    #[arg(long)]
-    pub quality: Option<u8>,
 }
 
 pub fn main() -> i32 {
@@ -217,7 +217,7 @@ fn report(result: Result<()>) -> i32 {
 pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
     if log_stderr {
         logger::init_stderr();
-    } else if let Err(e) = logger::init_file(log_path_for(config_path), false) {
+    } else if let Err(e) = logger::init_file(log_path_for(config_path)) {
         eprintln!("ログファイルを開けません: {e}");
     }
     let cfg = match Config::load_or_create(config_path) {
@@ -572,10 +572,9 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     std::thread::scope(|s| {
         for _ in 0..jobs {
             s.spawn(|| {
-                let _com = platform::ThreadInit::new();
                 loop {
                     let Some(path) = queue.lock().unwrap_or_else(|e| e.into_inner()).pop() else { break };
-                    let outcome = convert_file(&ctx, &path);
+                    let outcome = convert_guarded(&ctx, &path);
                     if let Some(line) = outcome.describe(&path) {
                         println!("{line}");
                     }

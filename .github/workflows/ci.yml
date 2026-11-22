@@ -54,6 +54,8 @@ jobs:
         with:
           path: .libjxl-cache
           key: libjxl-${{ runner.os }}-${{ runner.arch }}-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
+          # build.rs keys the cached build itself by its options, so an older entry is reusable.
+          restore-keys: libjxl-${{ runner.os }}-${{ runner.arch }}-${{ steps.libjxl.outputs.sha }}-
 
       - name: Install Rust
         shell: bash

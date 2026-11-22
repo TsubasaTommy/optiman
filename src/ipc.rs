@@ -42,14 +42,6 @@ pub fn unescape(s: &str) -> String {
     out
 }
 
-fn policy_str(p: OriginalPolicy) -> &'static str {
-    match p {
-        OriginalPolicy::Delete => "delete",
-        OriginalPolicy::Trash => "trash",
-        OriginalPolicy::Keep => "keep",
-    }
-}
-
 fn fp_str(fp: Option<Fingerprint>) -> String {
     fp.map_or_else(|| "-".to_string(), |f| format!("{}:{}", f.size, f.mtime_ns))
 }
@@ -70,7 +62,7 @@ pub fn outcome_to_line(o: &Outcome) -> String {
             format!(
                 "converted\t{}\t{before}\t{after}\t{}\t{}",
                 p(output),
-                policy_str(*original),
+                original.as_str(),
                 e(note.as_deref().unwrap_or(""))
             )
         }
@@ -91,11 +83,7 @@ pub fn outcome_from_line(line: &str) -> Option<Outcome> {
             output: PathBuf::from(get(1)?),
             before: get(2)?.parse().ok()?,
             after: get(3)?.parse().ok()?,
-            original: match get(4)?.as_str() {
-                "delete" => OriginalPolicy::Delete,
-                "trash" => OriginalPolicy::Trash,
-                _ => OriginalPolicy::Keep,
-            },
+            original: OriginalPolicy::from_name(&get(4)?)?,
             note: get(5).filter(|n| !n.is_empty()),
         },
         "would" => Outcome::WouldConvert(PathBuf::from(get(1)?)),

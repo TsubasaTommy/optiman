@@ -51,11 +51,6 @@ pub fn system_dirs() -> Vec<PathBuf> {
     .collect()
 }
 
-/// Canonical form used for watch roots (FSEvents reports fully resolved paths).
-pub fn normalize(p: PathBuf) -> PathBuf {
-    p
-}
-
 pub fn canonical(p: &std::path::Path) -> std::io::Result<PathBuf> {
     std::fs::canonicalize(p)
 }

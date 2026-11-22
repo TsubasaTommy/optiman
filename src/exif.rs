@@ -1,6 +1,6 @@
 //! Tiny TIFF/EXIF helpers: read and normalize the Orientation tag (0x0112) in IFD0.
 //!
-//! When we bake the orientation into the pixels, the EXIF Orientation must become 1,
+//! The JPEG XL codestream carries the orientation, so the copied EXIF Orientation must become 1;
 //! otherwise viewers that honour EXIF would rotate the image a second time.
 
 const ORIENTATION_TAG: u16 = 0x0112;

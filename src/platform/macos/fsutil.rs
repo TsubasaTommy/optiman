@@ -1,6 +1,6 @@
 //! File-system helpers: cloud placeholders, timestamps, Trash, Finder metadata.
 
-use std::ffi::{CString, c_void};
+use std::ffi::CString;
 use std::fs::{File, FileTimes, Metadata};
 use std::io;
 use std::os::macos::fs::{FileTimesExt, MetadataExt};
@@ -8,7 +8,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::ffi::*;
+use objc2::rc::autoreleasepool;
+use objc2_foundation::{NSFileManager, NSURL};
 
 const SF_DATALESS: u32 = 0x4000_0000;
 const UF_HIDDEN: u32 = 0x0000_8000;
@@ -75,39 +76,14 @@ pub fn copy_extra_metadata(src: &Path, dst: &Path) {
     }
 }
 
-/// Moves a file to the Trash via `-[NSFileManager trashItemAtURL:resultingItemURL:error:]`.
+/// Moves a file to the Trash (`-[NSFileManager trashItemAtURL:resultingItemURL:error:]`).
 pub fn trash(path: &Path) -> io::Result<()> {
-    unsafe {
-        let pool = objc_autoreleasePoolPush();
-        let result = (|| {
-            let cls = objc_getClass(c"NSFileManager".as_ptr());
-            if cls.is_null() {
-                return Err(io::Error::other("NSFileManager が見つかりません"));
-            }
-            let send0: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
-                std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
-            let manager = send0(cls, sel_registerName(c"defaultManager".as_ptr()));
-            let url = cf_url(path).ok_or_else(|| io::Error::other("パスを URL に変換できません"))?;
-            let send_trash: unsafe extern "C" fn(
-                *mut c_void,
-                *mut c_void,
-                *const c_void,
-                *mut c_void,
-                *mut *mut c_void,
-            ) -> i8 = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
-            let mut error: *mut c_void = std::ptr::null_mut();
-            let ok = send_trash(
-                manager,
-                sel_registerName(c"trashItemAtURL:resultingItemURL:error:".as_ptr()),
-                url.ptr(),
-                std::ptr::null_mut(),
-                &mut error,
-            );
-            if ok != 0 { Ok(()) } else { Err(io::Error::other("ゴミ箱へ移動できませんでした")) }
-        })();
-        objc_autoreleasePoolPop(pool);
-        result
-    }
+    autoreleasepool(|_| {
+        let url = NSURL::from_file_path(path).ok_or_else(|| io::Error::other("パスを URL に変換できません"))?;
+        NSFileManager::defaultManager()
+            .trashItemAtURL_resultingItemURL_error(&url, None)
+            .map_err(|e| io::Error::other(format!("ゴミ箱へ移動できませんでした: {}", e.localizedDescription())))
+    })
 }
 
 /// fsync the directory so the rename is durable before the original is removed.

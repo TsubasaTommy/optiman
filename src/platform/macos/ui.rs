@@ -373,9 +373,10 @@ impl Controller {
     }
 }
 
-/// The line under the quality choices: what the selected level means.
+/// The line under the quality choices: what the selected level means. (That JPEG is always
+/// lossless is said in the description at the top of the window.)
 fn quality_note(q: Quality) -> String {
-    format!("{} JPEG はどの画質でも劣化なしで変換します。", q.describe())
+    q.describe().to_string()
 }
 
 /// Renders the window content to a PNG (layout checks without screen-recording permission).

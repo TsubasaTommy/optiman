@@ -6,7 +6,8 @@ use std::path::{Component, Path, PathBuf};
 use crate::config::Config;
 use crate::platform;
 
-/// Suffix of our own in-progress output files (they are also dot-prefixed, i.e. hidden).
+/// Suffix of our own in-progress output files (they are also dot-prefixed, i.e. hidden). An
+/// on-disk name from before the rename, kept so leftovers of older versions are still cleaned up.
 pub const TEMP_SUFFIX: &str = ".oif-tmp";
 
 /// Library bundles and system folders that must never be touched.
@@ -32,7 +33,8 @@ const BUILTIN_EXCLUDE: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct Filter {
     extensions: Vec<String>,
-    exclude: Vec<String>,
+    /// Lowercase glob patterns, split into chars once (they are matched against every name).
+    exclude: Vec<Vec<char>>,
     /// Canonical excluded folders (config `exclude_folders`).
     excluded_dirs: Vec<PathBuf>,
 }
@@ -40,8 +42,11 @@ pub struct Filter {
 impl Filter {
     pub fn new(cfg: &Config) -> Filter {
         let extensions = cfg.extensions.iter().map(|e| e.trim_start_matches('.').to_ascii_lowercase()).collect();
-        let exclude =
-            BUILTIN_EXCLUDE.iter().map(|s| s.to_string()).chain(cfg.exclude.iter().map(|s| s.to_lowercase())).collect();
+        let exclude = BUILTIN_EXCLUDE
+            .iter()
+            .map(|s| s.chars().collect())
+            .chain(cfg.exclude.iter().map(|s| s.to_lowercase().chars().collect()))
+            .collect();
         let excluded_dirs =
             cfg.exclude_folder_paths().into_iter().map(|p| platform::paths::canonical(&p).unwrap_or(p)).collect();
         Filter { extensions, exclude, excluded_dirs }
@@ -58,21 +63,18 @@ impl Filter {
 
     /// True when `path` (somewhere below `root`) is a photo we should convert, judging by name only.
     pub fn accepts(&self, root: &Path, path: &Path) -> bool {
-        if self.in_excluded_dir(path) {
-            return false;
-        }
-        let Ok(rel) = path.strip_prefix(root) else { return false };
-        let mut last = None;
-        for comp in rel.components() {
-            let Component::Normal(name) = comp else { return false };
-            let name = name.to_string_lossy();
-            if self.is_excluded_name(&name) {
-                return false;
-            }
-            last = Some(name);
-        }
-        let Some(file_name) = last else { return false };
-        self.has_target_extension(&file_name)
+        let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else { return false };
+        let name = name.to_string_lossy();
+        self.accepts_dir(root, dir) && !self.is_excluded_name(&name) && self.has_target_extension(&name)
+    }
+
+    /// True when `dir` is `root` or below it and no folder on the way is excluded.
+    pub fn accepts_dir(&self, root: &Path, dir: &Path) -> bool {
+        !self.in_excluded_dir(dir)
+            && dir.strip_prefix(root).is_ok_and(|rel| {
+                rel.components()
+                    .all(|c| matches!(c, Component::Normal(n) if !self.is_excluded_name(&n.to_string_lossy())))
+            })
     }
 
     /// Directory/file names that are skipped entirely (hidden, library bundles, user excludes).
@@ -80,8 +82,8 @@ impl Filter {
         if name.starts_with('.') || name.ends_with(TEMP_SUFFIX) {
             return true;
         }
-        let lower = name.to_lowercase();
-        self.exclude.iter().any(|p| glob_match(p, &lower))
+        let lower: Vec<char> = name.to_lowercase().chars().collect();
+        self.exclude.iter().any(|p| glob_chars(p, &lower))
     }
 
     pub fn has_target_extension(&self, file_name: &str) -> bool {
@@ -97,8 +99,10 @@ impl Filter {
 
 /// Glob with `*` (any run) and `?` (one char). Both inputs are expected lowercase.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
+    glob_chars(&pattern.chars().collect::<Vec<_>>(), &text.chars().collect::<Vec<_>>())
+}
+
+fn glob_chars(p: &[char], t: &[char]) -> bool {
     let (mut pi, mut ti) = (0usize, 0usize);
     let (mut star, mut mark) = (None::<usize>, 0usize);
     while ti < t.len() {

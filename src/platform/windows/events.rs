@@ -317,7 +317,8 @@ fn parse(data: &[u8], root: &Path) -> Vec<Msg> {
         let path = root.join(OsString::from_wide(&units));
         if action == FILE_ACTION_ADDED.0 || action == FILE_ACTION_RENAMED_NEW_NAME.0 {
             out.push(if path.is_dir() { Msg::NewDir(path) } else { Msg::Changed(path) });
-        } else if action == FILE_ACTION_MODIFIED.0 && !path.is_dir() {
+        } else if action == FILE_ACTION_MODIFIED.0 {
+            // No directory check: the daemon only queues regular files (one stat there, not two).
             out.push(Msg::Changed(path));
         }
         if next == 0 {

@@ -203,10 +203,9 @@ impl Daemon {
         let threshold = (!full).then_some(self.catchup_since);
         let now = Instant::now();
         let mut found = Vec::new();
-        walk(&root, dir, &self.filter, &mut |p| found.push(p));
+        walk(&root, dir, &self.filter, &mut |p, md| found.push((p, md)));
         let mut queued = 0;
-        for path in found {
-            let Ok(md) = fs::symlink_metadata(&path) else { continue };
+        for (path, md) in found {
             if threshold.is_some_and(|t| fsutil::arrival_time(&md) < t) {
                 continue;
             }

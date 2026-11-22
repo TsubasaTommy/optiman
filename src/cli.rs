@@ -379,9 +379,9 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
         let (mut count, mut bytes) = (0u64, 0u64);
         for f in &folders {
             let root = paths::canonical(f)?;
-            walk(&root, &root, &filter, &mut |p| {
+            walk(&root, &root, &filter, &mut |_, md| {
                 count += 1;
-                bytes += fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                bytes += md.len();
             });
         }
         println!("既存の写真: {count} 件 ({})", human(bytes));
@@ -522,7 +522,7 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     for p in &args.paths {
         let canon = paths::canonical(p).with_context(|| format!("見つかりません: {}", p.display()))?;
         if canon.is_dir() {
-            walk(&canon, &canon, &filter, &mut |f| files.push(f));
+            walk(&canon, &canon, &filter, &mut |f, _| files.push(f));
         } else if canon.parent().is_some_and(|parent| filter.accepts(parent, &canon)) {
             files.push(canon);
         } else {

@@ -5,9 +5,14 @@ use std::path::{Path, PathBuf};
 
 use crate::filter::{Filter, TEMP_SUFFIX};
 
-/// Calls `f` for every candidate photo below `dir` (which must be inside `root`).
-/// Stale temporary files from an interrupted conversion are removed along the way.
-pub fn walk(root: &Path, dir: &Path, filter: &Filter, f: &mut dyn FnMut(PathBuf)) {
+/// Calls `f` with every candidate photo below `dir` (which must be inside `root`) and its
+/// metadata from the directory listing (no extra lookup on Windows). Directories are filtered on
+/// the way down, so files only need the extension check. Stale temporary files from an
+/// interrupted conversion are removed along the way.
+pub fn walk(root: &Path, dir: &Path, filter: &Filter, f: &mut dyn FnMut(PathBuf, fs::Metadata)) {
+    if !filter.accepts_dir(root, dir) {
+        return;
+    }
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         let Ok(entries) = fs::read_dir(&d) else { continue };
@@ -31,8 +36,11 @@ pub fn walk(root: &Path, dir: &Path, filter: &Filter, f: &mut dyn FnMut(PathBuf)
             }
             if ft.is_dir() {
                 stack.push(path);
-            } else if ft.is_file() && filter.accepts(root, &path) {
-                f(path);
+            } else if ft.is_file()
+                && filter.has_target_extension(&name)
+                && let Ok(md) = entry.metadata()
+            {
+                f(path, md);
             }
         }
     }
@@ -55,7 +63,7 @@ mod tests {
         fs::write(root.join("a/.6.jxl.oif-tmp"), b"x").unwrap();
         let filter = Filter::new(&Config::default());
         let mut found = Vec::new();
-        walk(root, root, &filter, &mut |p| found.push(p.strip_prefix(root).unwrap().to_path_buf()));
+        walk(root, root, &filter, &mut |p, _| found.push(p.strip_prefix(root).unwrap().to_path_buf()));
         found.sort();
         let expected: Vec<PathBuf> = ["1.jpg", "a/2.PNG", "a/b/3.tif"].iter().map(PathBuf::from).collect();
         assert_eq!(found, expected);

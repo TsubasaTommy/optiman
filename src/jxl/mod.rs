@@ -141,8 +141,10 @@ fn new_frame_settings(enc: &Encoder, effort: u8) -> Result<*mut ffi::JxlEncoderF
     Ok(settings)
 }
 
-fn drain_output(enc: &Encoder) -> Result<Vec<u8>, EncodeError> {
-    let mut out = vec![0u8; 64 * 1024];
+/// Collects the encoded bytes; `expected` sizes the first buffer so large outputs are not grown
+/// (and zero-filled) many times.
+fn drain_output(enc: &Encoder, expected: usize) -> Result<Vec<u8>, EncodeError> {
+    let mut out = vec![0u8; expected.max(64 * 1024)];
     let mut used = 0usize;
     loop {
         let mut next = unsafe { out.as_mut_ptr().add(used) };
@@ -172,7 +174,7 @@ pub fn transcode_jpeg(jpeg: &[u8], o: &EncodeOptions) -> Result<Vec<u8>, EncodeE
     let settings = new_frame_settings(&enc, o.effort.min(7))?;
     check(&enc, unsafe { ffi::JxlEncoderAddJPEGFrame(settings, jpeg.as_ptr(), jpeg.len()) }, "JPEG の再圧縮")?;
     unsafe { ffi::JxlEncoderCloseInput(enc.0) };
-    drain_output(&enc)
+    drain_output(&enc, jpeg.len())
 }
 
 /// The channels that are actually encoded (G, GA, RGB or RGBA), as indices into an RGBA pixel.
@@ -286,7 +288,8 @@ pub fn encode_pixels(img: &SourceImage, meta: &Metadata, o: &EncodeOptions) -> R
         drop(buf);
         ffi::JxlEncoderCloseInput(enc.0);
     }
-    drain_output(&enc)
+    // Photos compress to well under an eighth of their raw RGBA size, even losslessly.
+    drain_output(&enc, img.pixels.len() / 8)
 }
 
 // ---------- verification ----------

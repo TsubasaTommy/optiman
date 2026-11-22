@@ -54,7 +54,7 @@ winget install TsubasaTommy.Optiman
 | OS | 表示のしかた |
 |---|---|
 | macOS 14 以降 | そのまま表示できます (Finder、プレビュー、写真)。 |
-| Windows 11 24H2 以降 | Microsoft 公式の無料拡張「[JPEG XL Image Extension](https://apps.microsoft.com/detail/9MZPRTH5C0TB)」を入れると、エクスプローラーやフォトで表示できます。**インストーラーがこの拡張も一緒に入れます** (チェックを外せば入れません)。 |
+| Windows 11 24H2 以降 | Microsoft 公式の無料拡張「[JPEG XL Image Extension](https://apps.microsoft.com/detail/9MZPRTH5C0TB)」を入れると、エクスプローラーやフォトで表示できます。**インストーラーがこの拡張も一緒に入れます** (チェックを外せば入れません。winget で入れた場合は入らないので、下の方法で入れてください)。 |
 | それ以前の OS | 変換はされますが、標準のアプリでは表示できません。`restore` でいつでも元に戻せます。 |
 
 拡張をあとから入れる場合は、設定画面の「拡張機能をインストール」を押すか、次を実行します。

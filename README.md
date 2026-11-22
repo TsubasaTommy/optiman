@@ -41,7 +41,7 @@ PowerShell から入れる場合は、次を実行します。最新の Setup.ex
 irm https://tsubasatommy.github.io/optiman/install.ps1 | iex
 ```
 
-winget でも入れられます。登録は Microsoft の審査中です ([winget-pkgs #486181](https://github.com/microsoft/winget-pkgs/pull/486181))。見つからない場合は、上のインストーラーか PowerShell で入れてください。
+winget でも入れられます。登録は Microsoft の審査中です ([winget-pkgs #486317](https://github.com/microsoft/winget-pkgs/pull/486317))。見つからない場合は、上のインストーラーか PowerShell で入れてください。
 
 ```powershell
 winget install TsubasaTommy.Optiman

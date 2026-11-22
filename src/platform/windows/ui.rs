@@ -43,7 +43,7 @@ use crate::app::{self, Settings, ui_text as text};
 use crate::config::{Config, DEFAULT_EFFORT, EFFORT_RANGE, Quality};
 
 const WIDTH: i32 = 560;
-const HEIGHT: i32 = 564;
+const HEIGHT: i32 = 584;
 
 const ID_ADD_INCLUDE: u16 = 101;
 const ID_REMOVE_INCLUDE: u16 = 102;
@@ -53,6 +53,7 @@ const ID_INSTALL_EXTENSION: u16 = 105;
 /// The quality radio buttons are `ID_QUALITY + index in Quality::ALL`.
 const ID_QUALITY: u16 = 110;
 const ID_AUTO_UPDATE: u16 = 106;
+const ID_TRAY_ICON: u16 = 107;
 const ID_SLIDER: u16 = 201;
 const ID_INCLUDE_LIST: u16 = 202;
 const ID_EXCLUDE_LIST: u16 = 203;
@@ -75,6 +76,7 @@ struct Ui {
     effort: Cell<u8>,
     quality: Cell<Quality>,
     auto_update: Cell<HWND>,
+    tray_icon: Cell<HWND>,
     children: RefCell<Vec<Child>>,
     font: Cell<HFONT>,
     slider: Cell<HWND>,
@@ -99,6 +101,10 @@ fn message_box(owner: HWND, text: &str, style: MESSAGEBOX_STYLE) {
         let caption = wide(crate::DISPLAY_NAME);
         MessageBoxW(Some(owner), PCWSTR(text.as_ptr()), PCWSTR(caption.as_ptr()), style | MB_OK);
     }
+}
+
+fn checked(checkbox: HWND) -> bool {
+    unsafe { SendMessageW(checkbox, BM_GETCHECK, None, None) }.0 == 1
 }
 
 fn set_text(hwnd: HWND, text: &str) {
@@ -156,12 +162,20 @@ impl Ui {
         self.add_child(WC_BUTTONW, text, WS_TABSTOP | WINDOW_STYLE(style as u32), id, frame)
     }
 
+    fn checkbox(&self, text: &str, id: u16, on: bool, frame: [i32; 4]) -> HWND {
+        let hwnd = self.add_child(WC_BUTTONW, text, WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32), id, frame);
+        unsafe {
+            SendMessageW(hwnd, BM_SETCHECK, Some(WPARAM(usize::from(on))), None);
+        }
+        hwnd
+    }
+
     fn list(&self, id: u16, frame: [i32; 4]) -> HWND {
         let style = WS_TABSTOP | WS_BORDER | WS_VSCROLL | WINDOW_STYLE((LBS_NOTIFY | LBS_NOINTEGRALHEIGHT) as u32);
         self.add_child(WC_LISTBOXW, "", style, id, frame)
     }
 
-    fn build(&self, auto_update: bool) {
+    fn build(&self, cfg: &Config) {
         self.label(text::EFFORT, [20, 26, 106, 20]);
         self.label(text::EFFORT_LOW, [130, 26, 20, 20]);
         let slider = self.add_child(
@@ -227,20 +241,11 @@ impl Ui {
             }
         }
 
-        let checkbox = self.add_child(
-            WC_BUTTONW,
-            text::AUTO_UPDATE,
-            WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
-            ID_AUTO_UPDATE,
-            [20, 522, 280, 22],
-        );
-        unsafe {
-            SendMessageW(checkbox, BM_SETCHECK, Some(WPARAM(usize::from(auto_update))), None);
-        }
-        self.auto_update.set(checkbox);
+        self.tray_icon.set(self.checkbox(text::TRAY_ICON, ID_TRAY_ICON, cfg.tray_icon, [20, 514, 300, 22]));
+        self.auto_update.set(self.checkbox(text::AUTO_UPDATE, ID_AUTO_UPDATE, cfg.auto_update, [20, 540, 300, 22]));
 
-        self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 518, 100, 30]);
-        self.button(text::SAVE, IDOK.0 as u16, [440, 518, 100, 30]);
+        self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 536, 100, 30]);
+        self.button(text::SAVE, IDOK.0 as u16, [440, 536, 100, 30]);
         self.refresh_lists();
     }
 
@@ -327,7 +332,8 @@ impl Ui {
             quality: self.quality.get(),
             include: self.include.borrow().clone(),
             exclude: self.exclude.borrow().clone(),
-            auto_update: unsafe { SendMessageW(self.auto_update.get(), BM_GETCHECK, None, None) }.0 == 1,
+            auto_update: checked(self.auto_update.get()),
+            tray_icon: checked(self.tray_icon.get()),
         };
         let window = self.window.get();
         match app::save_settings(&self.config_path, &settings) {
@@ -487,6 +493,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         effort: Cell::new(cfg.effort.clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end())),
         quality: Cell::new(cfg.quality),
         auto_update: Cell::new(HWND::default()),
+        tray_icon: Cell::new(HWND::default()),
         children: RefCell::new(Vec::new()),
         font: Cell::new(HFONT::default()),
         slider: Cell::new(HWND::default()),
@@ -521,7 +528,7 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         )
     }?;
     ui.window.set(window);
-    ui.build(cfg.auto_update);
+    ui.build(&cfg);
     let actual = unsafe { GetDpiForWindow(window) };
     if actual != dpi {
         let mut rect = RECT { left: 0, top: 0, right: scale(WIDTH, actual), bottom: scale(HEIGHT, actual) };

@@ -53,7 +53,7 @@ brew install tsubasatommy/tap/optiman
 optiman install
 ```
 
-`install` で、変換するフォルダ (既定は `~/Pictures`。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は `optiman settings` か `~/Applications/Optiman.app` で開けます。
+`install` で、変換するフォルダ (既定は `~/Pictures`。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は、メニューバーのアイコン、`~/Applications/Optiman.app`、`optiman settings` のどれからでも開けます。
 
 Homebrew を使わない場合は、次を実行します。最新リリースをダウンロードし、SHA256 を確かめてから `~/.local/bin` に置きます。
 
@@ -65,7 +65,7 @@ curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh
 
 [Optiman-Setup.exe をダウンロード](https://github.com/TsubasaTommy/optiman/releases/latest/download/Optiman-Setup.exe)
 
-x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
+x64 と ARM64 の両方に対応したユーザー単位のインストーラーで、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面は、タスクトレイのアイコンかスタートメニューの「Optiman」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
 
 > [!NOTE]
 > インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は [SHA256SUMS.txt](https://github.com/TsubasaTommy/optiman/releases/latest/download/SHA256SUMS.txt) でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。
@@ -124,19 +124,19 @@ winget install --id 9MZPRTH5C0TB --source msstore
 
 | 待機中の実測値 | CPU 時間 | スレッド | 専有メモリ |
 |---|---|---|---|
-| macOS | プロセス自体がありません | | |
+| macOS | 変換のプロセスはありません。メニューバーのアイコンだけが 30 秒間で 0 ms、11 MB で待っています | | |
 | Windows x64 | 30 秒間で 0 ms | 1 本 | 2.3 MB |
 | Windows ARM64 | 30 秒間で 0 ms | 2 本 | 2.8 MB |
 
-CI では、macOS と Windows の両方で、待機中に CPU 時間が増えないことを確かめています (`scripts/idle-check.sh`、`scripts/idle-check.ps1`)。
+CI では、macOS と Windows の両方で、待機中に CPU 時間が増えないことを確かめています (`scripts/idle-check.sh`、`scripts/idle-check.ps1`)。Windows でインストーラーから入れた場合は、タスクトレイのアイコンと自動アップデートのために、眠って待つスレッドが 2 本増えます。メニューバーやタスクトレイのアイコンは、設定画面でオフにできます。
 
 | | macOS | Windows |
 |---|---|---|
 | 起動 | launchd の `LaunchEvents` (`com.apple.fsevents.matching`)。監視フォルダの中で何かが変わったときだけ launchd がプロセスを起動し、処理が終わって 5 秒たつと終了します。**待機中はプロセスがありません** | ログイン時に起動します (HKCU の Run)。メインスレッドが 1 つの I/O 完了ポートで待ちます |
 | 変更の検出 | FSEvents。前回の event id から履歴を再生するので、止まっていた間の変更も取りこぼしません。除外フォルダと写真ライブラリは `FSEventStreamSetExclusionPaths` で通知自体を止めます | `ReadDirectoryChangesW` (サブツリー、overlapped)。停止要求 (名前付きパイプ) と変換結果の通知も、同じ完了ポートで受けます。**待機中のスレッドは 1 本**で、`GetQueuedCompletionStatus(INFINITE)` で眠っています |
 | 変換 | 必要なときだけ子プロセス (`worker`) を起動します。`PRIO_DARWIN_BG` と Background QoS で、効率コアで動き I/O も抑えます | 必要なときだけ子プロセスを起動します。`PROCESS_MODE_BACKGROUND_BEGIN` と EcoQoS を使います |
-| 待機中のメモリ | 0 (プロセスがありません) | 常駐プロセスは EcoQoS と最低のメモリ優先度で動き、待機に入るとワーキングセットを OS に返します |
-| 設定画面 | 開いている間だけ動く別プロセス (AppKit)。閉じれば終了します | 開いている間だけ動く別プロセス (Win32)。閉じれば終了します |
+| 待機中のメモリ | 変換のプロセスは 0。メニューバーのアイコンは、ログイン時に起動する別プロセス (約 11 MB) です | 常駐プロセスは EcoQoS と最低のメモリ優先度で動き、待機に入るとワーキングセットを OS に返します |
+| 設定画面 | 開いている間だけ動く別プロセス (AppKit)。閉じれば終了します。メニューバーのアイコンから開きます | 開いている間だけ動く別プロセス (Win32)。閉じれば終了します。タスクトレイのアイコンから開きます |
 
 ### 1 枚を変換する手順
 
@@ -189,6 +189,7 @@ skip_if_larger = true      # JPEG XL の方が大きくなる場合は元ファ�
 extensions = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
 exclude = []               # 除外するフォルダ/ファイル名のパターン (* と ?)
 auto_update = true         # 新しいバージョンを自動でインストールする (1 日 1 回確認)
+tray_icon = true           # タスクトレイ (macOS はメニューバー) にアイコンを出す
 ```
 
 ログは、macOS では `~/Library/Logs/optiman/`、Windows では `%LOCALAPPDATA%\optiman\logs\` にあります。
@@ -240,7 +241,7 @@ scripts/idle-check.sh target/release/optiman 60
 
 冒頭の画像は `docs/hero-light.svg` と `docs/hero-dark.svg` です。色と文字は [配布ページ](site/index.html) の冒頭と揃えています。
 
-アプリのアイコン (`assets/optiman.icns` と `assets/optiman.ico`) は `scripts/render_icon.py` で書き出します。
+アプリのアイコン (`assets/optiman.icns`、`assets/optiman.ico`) とメニューバーのアイコン (`assets/menubar.png`) は `scripts/render_icon.py` で書き出します。
 
 ## ライセンス
 

@@ -4,8 +4,9 @@
 //!   PNG/TIFF/BMP/lossless WebP are encoded losslessly by default, or lossily at a chosen
 //!   quality level. Every result is verified before the original is touched.
 //! - Zero resources while idle: on macOS launchd starts the agent only when a watched folder
-//!   changes; on Windows a single thread waits in an I/O completion port (plus, for automatic
-//!   updates, one that sleeps between daily checks).
+//!   changes; on Windows a single thread waits in an I/O completion port (plus one that sleeps
+//!   between daily update checks and one that waits for clicks on the tray icon). The macOS menu
+//!   bar icon is a small process of its own.
 
 pub mod app;
 pub mod cli;

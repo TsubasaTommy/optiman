@@ -6,21 +6,12 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-use super::autostart;
-use crate::platform::AgentSpec;
 use crate::update::Version;
 
 const FORMULA: &str = "tsubasatommy/tap/optiman";
 
 pub fn curl_command() -> Command {
     Command::new("/usr/bin/curl")
-}
-
-/// After an upgrade, brings the settings app and the daily update job in line with this binary.
-pub fn on_agent_start(spec: &AgentSpec) {
-    if let Err(e) = autostart::refresh(spec) {
-        crate::warn!("登録を更新できません: {e:#}");
-    }
 }
 
 /// Whether Homebrew installed this binary (a copy put in place by hand is updated by hand).

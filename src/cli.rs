@@ -78,6 +78,10 @@ pub enum Command {
     /// (内部用) 標準入力から受け取ったファイルを変換する使い捨てプロセス
     #[command(hide = true)]
     Worker(WorkerArgs),
+    /// (内部用) メニューバーのアイコン。ログイン時に launchd が起動する
+    #[cfg(target_os = "macos")]
+    #[command(hide = true)]
+    Tray,
     /// (インストーラー用) JPEG XL を表示できるか確認し、必要なら表示用の拡張機能を入れる。
     /// 終了コード: 0 = 表示できる / 1 = できない / 2 = インストール失敗 / 3 = この OS では非対応
     #[command(hide = true)]
@@ -226,6 +230,8 @@ pub fn main() -> i32 {
             update::check(&config_path, false).map(|message| println!("{}", message.unwrap_or_default()))
         }
         Command::Viewer { install, open_store } => return viewer_cmd(install, open_store),
+        #[cfg(target_os = "macos")]
+        Command::Tray => platform::tray::run(&config_path),
         Command::Worker(args) => {
             let ctx = ConvertCtx {
                 effort: args.effort,
@@ -278,16 +284,15 @@ pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
         return 0;
     }
     if let Ok(spec) = app::agent_spec(config_path, &cfg) {
-        platform::update::on_agent_start(&spec);
+        platform::on_agent_start(&spec);
     }
     let opts = daemon::Options { exit_when_idle: on_demand.then_some(ON_DEMAND_IDLE_EXIT) };
-    match daemon::run(cfg, config_path, opts) {
-        Ok(()) => 0,
-        Err(e) => {
-            crate::error!("{e:#}");
-            0
-        }
+    let result = daemon::run(cfg, config_path, opts);
+    platform::on_agent_exit();
+    if let Err(e) = result {
+        crate::error!("{e:#}");
     }
+    0
 }
 
 // ---------- prompts ----------

@@ -1,5 +1,6 @@
 //! OS-specific code. Each platform module exposes the same submodules:
-//! `paths`, `events`, `image`, `fsutil`, `power`, `autostart`, `ui` and `update`.
+//! `paths`, `events`, `image`, `fsutil`, `power`, `autostart`, `ui` and `update`, plus the
+//! `on_agent_start` / `on_agent_exit` hooks of the resident agent.
 
 use std::fs::{File, FileTimes, Metadata};
 use std::io;
@@ -32,16 +33,22 @@ pub struct AgentSpec {
     pub folders: Vec<PathBuf>,
     /// Also schedule the daily update check (macOS; the Windows agent runs it itself).
     pub auto_update: bool,
+    /// Show the tray (Windows) or menu bar (macOS) icon.
+    pub tray_icon: bool,
 }
 
 cfg_select! {
     target_os = "macos" => {
         mod macos;
-        pub use macos::{autostart, events, fsutil, image, paths, power, ui, update};
+        pub use macos::{
+            autostart, events, fsutil, image, on_agent_exit, on_agent_start, paths, power, tray, ui, update,
+        };
     }
     windows => {
         mod windows;
-        pub use self::windows::{autostart, events, fsutil, image, paths, power, ui, update};
+        pub use self::windows::{
+            autostart, events, fsutil, image, on_agent_exit, on_agent_start, paths, power, ui, update,
+        };
     }
     _ => {
         compile_error!("optiman supports macOS and Windows only");

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Renders the app icon: assets/optiman.icns (macOS) and assets/optiman.ico (Windows).
+"""Renders the app icon: assets/optiman.icns (macOS) and assets/optiman.ico (Windows), and the
+menu bar icon assets/menubar.png (macOS, a 36 px template image shown at 18 pt).
 
 The icon is the brand mark (the site's favicon.svg: six colour patches, 3 x 2) on a rounded tile
 in the site's card grey. Small sizes snap the patches to whole pixels so they stay crisp.
@@ -135,6 +136,21 @@ def ico(images):
     return out + b"".join(data for _, data in images)
 
 
+def menu_bar_rows(size=36, cell=10, gap=2):
+    """The mark as black patches with gaps (a template image: macOS tints it for the menu bar)."""
+    width, height = 3 * cell + 2 * gap, 2 * cell + gap
+    x0, y0 = (size - width) // 2, (size - height) // 2
+    rows = []
+    for y in range(size):
+        row = bytearray()
+        for x in range(size):
+            dx, dy = x - x0, y - y0
+            inside = 0 <= dx < width and 0 <= dy < height and dx % (cell + gap) < cell and dy % (cell + gap) < cell
+            row += bytes([0, 0, 0, 255 if inside else 0])
+        rows.append(bytes(row))
+    return rows
+
+
 def icns(entries):
     """entries: (type, PNG data) pairs."""
     body = b"".join(kind + struct.pack(">I", 8 + len(data)) + data for kind, data in entries)
@@ -161,6 +177,7 @@ def main():
         rows = windows_rows(size)
         images.append((size, png(rows) if size >= 256 else dib(rows)))
     (out / "optiman.ico").write_bytes(ico(images))
+    (out / "menubar.png").write_bytes(png(menu_bar_rows()))
 
 
 if __name__ == "__main__":

@@ -516,7 +516,7 @@ optiman install</code></pre></div>
         <h3>Homebrew (おすすめ)</h3>
         <div class="cmd"><pre><code>brew install tsubasatommy/tap/optiman
 optiman install</code></pre></div>
-        <p><code>install</code> で、変換するフォルダ (既定は <code>~/Pictures</code>。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は <code>optiman settings</code> か <code>~/Applications/Optiman.app</code> で開けます。</p>
+        <p><code>install</code> で、変換するフォルダ (既定は <code>~/Pictures</code>。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は、メニューバーのアイコン、<code>~/Applications/Optiman.app</code>、<code>optiman settings</code> のどれからでも開けます。</p>
         <h3>Homebrew を使わない場合</h3>
         <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh</code></pre></div>
         <p class="small">最新リリースをダウンロードし、SHA256 を確かめてから <code>~/.local/bin</code> に置きます。</p>
@@ -525,7 +525,7 @@ optiman install</code></pre></div>
       <div class="panel" id="p-win" role="tabpanel" aria-labelledby="tab-win" hidden>
         <h3>インストーラー</h3>
         <a class="download" href="https://github.com/TsubasaTommy/optiman/releases/latest/download/Optiman-Setup.exe">Setup.exe をダウンロード</a>
-        <p>x64 と ARM64 の両方に対応し、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。</p>
+        <p>x64 と ARM64 の両方に対応し、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面は、タスクトレイのアイコンかスタートメニューの「Optiman」から開けます。</p>
         <p class="small">インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は <a href="https://github.com/TsubasaTommy/optiman/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。</p>
         <h3>PowerShell から入れる場合</h3>
         <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optiman/install.ps1 | iex</code></pre></div>
@@ -579,7 +579,7 @@ optiman install</code></pre></div>
         <table class="stack">
           <thead><tr><th scope="col">待機中の実測値</th><th scope="col">CPU 時間</th><th scope="col">スレッド</th><th scope="col">専有メモリ</th></tr></thead>
           <tbody>
-            <tr><th scope="row">macOS</th><td colspan="3" data-label="待機中">プロセス自体がありません</td></tr>
+            <tr><th scope="row">macOS</th><td colspan="3" data-label="待機中">変換のプロセスはありません。メニューバーのアイコンだけが 30 秒間で 0 ms、11 MB で待っています</td></tr>
             <tr><th scope="row">Windows x64</th><td class="num" data-label="CPU 時間">30 秒間で 0 ms</td><td class="num" data-label="スレッド">1 本</td><td class="num" data-label="専有メモリ">2.3 MB</td></tr>
             <tr><th scope="row">Windows ARM64</th><td class="num" data-label="CPU 時間">30 秒間で 0 ms</td><td class="num" data-label="スレッド">2 本</td><td class="num" data-label="専有メモリ">2.8 MB</td></tr>
           </tbody>
@@ -587,13 +587,13 @@ optiman install</code></pre></div>
       </div>
       <dl class="how">
         <dt>待っている間はリソースを使わない</dt>
-        <dd>macOS では、フォルダが変わったときだけ launchd がプロセスを起動し、変換が終われば終了します。Windows では、1 本のスレッドが I/O 完了ポートで眠るだけです。</dd>
+        <dd>macOS では、フォルダが変わったときだけ launchd がプロセスを起動し、変換が終われば終了します。Windows では、1 本のスレッドが I/O 完了ポートで眠るだけです。メニューバーやタスクトレイのアイコンも、クリックを待って眠っているだけで、設定画面でオフにできます。</dd>
         <dt>変換は使い捨てのプロセスで</dt>
         <dd>必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。使ったメモリはすべて OS に返されます。</dd>
         <dt>安全な置き換え</dt>
         <dd>確認、一時ファイルへの書き込みと fsync、rename、元ファイルが変わっていないかの確認、の順に進めます。日時や Finder タグも引き継ぎます。</dd>
         <dt>設定画面</dt>
-        <dd>画質 (最高、高、中、低)、圧縮率、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
+        <dd>画質 (最高、高、中、低)、圧縮率、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスで、タスクトレイ (macOS はメニューバー) のアイコンから開きます。</dd>
         <dt>OS のネイティブ API</dt>
         <dd>Rust から FSEvents、launchd、ImageIO、AppKit (macOS)、ReadDirectoryChangesW、IOCP、WIC、Win32 (Windows) を直接呼び出します。</dd>
         <dt>公式の JPEG XL 実装</dt>

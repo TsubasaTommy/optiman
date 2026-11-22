@@ -24,10 +24,13 @@ try {
     $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
     if (-not $expected -or $expected -ne $actual) { throw "チェックサムが一致しません (期待値: $expected, 実際: $actual)" }
 
-    $start = @{ FilePath = $exe; Wait = $true; PassThru = $true }
+    $start = @{ FilePath = $exe; PassThru = $true }
     if ($env:OIF_SILENT) { $start.ArgumentList = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-") }
     Write-Host "インストーラーを起動します"
+    # Wait for the installer only (Start-Process -Wait would also wait for the agent it starts).
     $p = Start-Process @start
+    $null = $p.Handle
+    $p.WaitForExit()
     if ($p.ExitCode -ne 0) { throw "インストーラーが終了コード $($p.ExitCode) で終了しました" }
     Write-Host "インストールしました"
 }

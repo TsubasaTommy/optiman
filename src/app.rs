@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 
 use crate::APP_NAME;
-use crate::config::{self, Config};
+use crate::config::{self, Config, Quality};
 use crate::daemon::resolve_roots;
 use crate::platform::{autostart, events, paths};
 
@@ -83,8 +83,7 @@ pub fn register_agent(config_path: &Path, cfg: &Config, start_now: bool) -> Resu
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub effort: u8,
-    pub lossy: bool,
-    pub quality: u8,
+    pub quality: Quality,
     pub include: Vec<PathBuf>,
     pub exclude: Vec<PathBuf>,
 }
@@ -93,7 +92,6 @@ impl Settings {
     pub fn from_config(cfg: &Config) -> Settings {
         Settings {
             effort: cfg.effort,
-            lossy: cfg.lossy,
             quality: cfg.quality,
             include: cfg.folder_paths(),
             exclude: cfg.exclude_folder_paths(),
@@ -111,7 +109,6 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
     }
     let mut cfg = Config::load(config_path).unwrap_or_default();
     cfg.effort = settings.effort;
-    cfg.lossy = settings.lossy;
     cfg.quality = settings.quality;
     cfg.folders = settings.include.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.exclude_folders = settings.exclude.iter().map(|f| config::contract_tilde(f)).collect();
@@ -132,20 +129,12 @@ pub fn effort_label(effort: u8) -> String {
     format!("{effort} ({hint})")
 }
 
-/// A short description for a lossy quality value (shown next to its slider).
-pub fn quality_label(quality: u8) -> String {
-    let hint = match quality {
-        90.. => "最高画質",
-        80..=89 => "高画質",
-        70..=79 => "標準",
-        _ => "小さい",
-    };
-    format!("{quality} ({hint})")
-}
-
 /// One line describing how photos are encoded.
 pub fn mode_label(cfg: &Config) -> String {
-    if cfg.lossy { format!("非可逆 品質 {} (JPEG は劣化なし)", cfg.quality) } else { "劣化なし".into() }
+    match cfg.quality {
+        Quality::Lossless => Quality::Lossless.name().into(),
+        q => format!("{} (非可逆、JPEG は劣化なし)", q.name()),
+    }
 }
 
 #[cfg(test)]
@@ -159,9 +148,12 @@ mod tests {
     }
 
     #[test]
-    fn quality_labels() {
-        assert_eq!(quality_label(90), "90 (最高画質)");
-        assert_eq!(quality_label(60), "60 (小さい)");
+    fn mode_labels() {
+        assert_eq!(mode_label(&Config::default()), "最高 (劣化なし)");
+        assert_eq!(
+            mode_label(&Config { quality: Quality::Medium, ..Config::default() }),
+            "中 (非可逆、JPEG は劣化なし)"
+        );
     }
 
     #[test]

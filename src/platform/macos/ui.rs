@@ -20,7 +20,7 @@ use objc2_foundation::{
 };
 
 use crate::app::{self, Settings};
-use crate::config::{Config, EFFORT_RANGE, QUALITY_RANGE};
+use crate::config::{Config, EFFORT_RANGE, Quality};
 
 const WIDTH: f64 = 560.0;
 const HEIGHT: f64 = 624.0;
@@ -35,14 +35,12 @@ pub struct Ivars {
     include: RefCell<Vec<PathBuf>>,
     exclude: RefCell<Vec<PathBuf>>,
     effort: Cell<u8>,
-    lossy: Cell<bool>,
-    quality: Cell<u8>,
+    quality: Cell<Quality>,
     window: OnceCell<Retained<NSWindow>>,
     include_table: OnceCell<Retained<NSTableView>>,
     exclude_table: OnceCell<Retained<NSTableView>>,
     effort_label: OnceCell<Retained<NSTextField>>,
-    quality_slider: OnceCell<Retained<NSSlider>>,
-    quality_label: OnceCell<Retained<NSTextField>>,
+    quality_note: OnceCell<Retained<NSTextField>>,
 }
 
 define_class!(
@@ -88,21 +86,12 @@ define_class!(
             }
         }
 
-        #[unsafe(method(lossyChanged:))]
-        fn lossy_changed(&self, sender: &NSButton) {
-            let on = sender.state() == NSControlStateValueOn;
-            self.ivars().lossy.set(on);
-            if let Some(slider) = self.ivars().quality_slider.get() {
-                slider.setEnabled(on);
-            }
-        }
-
         #[unsafe(method(qualityChanged:))]
-        fn quality_changed(&self, sender: &NSSlider) {
-            let value = (sender.doubleValue().round() as u8).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end());
-            self.ivars().quality.set(value);
-            if let Some(label) = self.ivars().quality_label.get() {
-                label.setStringValue(&NSString::from_str(&app::quality_label(value)));
+        fn quality_changed(&self, sender: &NSButton) {
+            let Some(&q) = usize::try_from(sender.tag()).ok().and_then(|i| Quality::ALL.get(i)) else { return };
+            self.ivars().quality.set(q);
+            if let Some(note) = self.ivars().quality_note.get() {
+                note.setStringValue(&NSString::from_str(&quality_note(q)));
             }
         }
 
@@ -130,7 +119,6 @@ define_class!(
         fn save(&self, _sender: Option<&AnyObject>) {
             let settings = Settings {
                 effort: self.ivars().effort.get(),
-                lossy: self.ivars().lossy.get(),
                 quality: self.ivars().quality.get(),
                 include: self.ivars().include.borrow().clone(),
                 exclude: self.ivars().exclude.borrow().clone(),
@@ -159,14 +147,12 @@ impl Controller {
             include: RefCell::new(s.include),
             exclude: RefCell::new(s.exclude),
             effort: Cell::new(s.effort),
-            lossy: Cell::new(s.lossy),
-            quality: Cell::new(s.quality.clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())),
+            quality: Cell::new(s.quality),
             window: OnceCell::new(),
             include_table: OnceCell::new(),
             exclude_table: OnceCell::new(),
             effort_label: OnceCell::new(),
-            quality_slider: OnceCell::new(),
-            quality_label: OnceCell::new(),
+            quality_note: OnceCell::new(),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -293,7 +279,7 @@ impl Controller {
         let content = window.contentView().expect("content view");
 
         self.label(
-            "写真を JPEG XL に変換します。既定では画質は一切劣化しません: JPEG は元の JPEG にそのまま戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。HEIC と非可逆 WebP は変換しません。",
+            "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。",
             frame(20.0, 16.0, 520.0, 52.0),
             &content,
         );
@@ -323,37 +309,31 @@ impl Controller {
             &content,
         );
 
-        let lossy = unsafe {
-            NSButton::checkboxWithTitle_target_action(
-                &NSString::from_str("非可逆で圧縮する (PNG・TIFF・BMP・ロスレス WebP。JPEG は常に劣化なし)"),
-                Some(target),
-                Some(sel!(lossyChanged:)),
-                mtm,
-            )
-        };
-        lossy.setState(if self.ivars().lossy.get() { NSControlStateValueOn } else { NSControlStateValueOff });
-        lossy.setFrame(frame(20.0, 142.0, 520.0, 22.0));
-        content.addSubview(&lossy);
-
-        self.label("品質", frame(40.0, 174.0, 90.0, 20.0), &content);
-        let quality = unsafe {
-            NSSlider::sliderWithValue_minValue_maxValue_target_action(
-                f64::from(self.ivars().quality.get()),
-                f64::from(*QUALITY_RANGE.start()),
-                f64::from(*QUALITY_RANGE.end()),
-                Some(target),
-                Some(sel!(qualityChanged:)),
-                mtm,
-            )
-        };
-        quality.setFrame(frame(130.0, 170.0, 300.0, 28.0));
-        quality.setEnabled(self.ivars().lossy.get());
-        content.addSubview(&quality);
-        let quality_label =
-            self.label(&app::quality_label(self.ivars().quality.get()), frame(440.0, 174.0, 110.0, 20.0), &content);
-        let _ = self.ivars().quality_slider.set(quality);
-        let _ = self.ivars().quality_label.set(quality_label);
-        self.label("下げるほど小さくなります。元の画質には戻せません", frame(130.0, 200.0, 400.0, 18.0), &content);
+        self.label("画質", frame(20.0, 146.0, 110.0, 20.0), &content);
+        // Radio buttons that share a superview and an action form one group.
+        let widths = [150.0, 70.0, 70.0, 70.0];
+        let mut x = 130.0;
+        for (i, (q, w)) in Quality::ALL.iter().zip(widths).enumerate() {
+            let radio = unsafe {
+                NSButton::radioButtonWithTitle_target_action(
+                    &NSString::from_str(q.name()),
+                    Some(target),
+                    Some(sel!(qualityChanged:)),
+                    mtm,
+                )
+            };
+            radio.setTag(i as NSInteger);
+            radio.setState(if *q == self.ivars().quality.get() {
+                NSControlStateValueOn
+            } else {
+                NSControlStateValueOff
+            });
+            radio.setFrame(frame(x, 144.0, w, 22.0));
+            content.addSubview(&radio);
+            x += w + 10.0;
+        }
+        let note = self.label(&quality_note(self.ivars().quality.get()), frame(130.0, 172.0, 410.0, 36.0), &content);
+        let _ = self.ivars().quality_note.set(note);
 
         self.label("変換するフォルダ (サブフォルダも対象)", frame(20.0, 224.0, 400.0, 20.0), &content);
         let include = self.folder_list(246.0, &content);
@@ -391,6 +371,11 @@ impl Controller {
         }
         let _ = self.ivars().window.set(window);
     }
+}
+
+/// The line under the quality choices: what the selected level means.
+fn quality_note(q: Quality) -> String {
+    format!("{} JPEG はどの画質でも劣化なしで変換します。", q.describe())
 }
 
 /// Renders the window content to a PNG (layout checks without screen-recording permission).

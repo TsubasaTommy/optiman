@@ -289,12 +289,17 @@
   }
   /* Measured sizes: each value carries a meter whose track is the original file. */
   .measure { table-layout: fixed; }
-  .measure .c-name { width: 30%; }
+  .measure .c-name { width: 24%; }
   .measure .c-default, .choose .c-default { background: var(--tint); }
   .measure th .sub { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
   .measure thead th, .measure tbody td { padding-left: 10px; padding-right: 10px; }
   .measure .v { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
-  .measure .pct { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .measure .cg { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; align-items: center; }
+  .measure .cg .v { grid-column: 1 / -1; grid-row: 1; }
+  .measure .cg .meter { grid-column: 1; grid-row: 2; margin-top: 0; }
+  .measure .cg .pct { grid-column: 2; grid-row: 2; }
+  .measure .cg .cell-note { grid-column: 1 / -1; grid-row: 3; }
+  .measure .pct { font-size: 13px; color: var(--muted); white-space: nowrap; }
   .measure .cell-note { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
   .measure .same { font-size: 14px; color: var(--muted); }
   .meter { display: block; height: 6px; border-radius: 3px; background: var(--bar-track); margin-top: 8px; overflow: hidden; }
@@ -318,11 +323,10 @@
     .measure tr { padding: 14px 0; border-bottom: 1px solid var(--rule); }
     .measure tbody th { border: 0; padding: 0 0 6px; font-size: 16px; }
     .measure tbody td {
-      display: grid; grid-template-columns: 7.5rem 1fr; column-gap: 12px; align-items: baseline;
-      border: 0; padding: 3px 0;
+      display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); column-gap: 12px; align-items: baseline;
+      border: 0; padding: 4px 0;
     }
     .measure tbody td::before { content: attr(data-label); font-size: 13px; font-weight: 700; color: var(--muted); }
-    .measure .meter, .measure .cell-note { grid-column: 2; }
     .flow { flex-direction: column; align-items: flex-start; }
     .flow li + li::before { display: none; }
     .flow li + li { grid-template-columns: 24px auto; }
@@ -430,43 +434,43 @@ optiman install</code></pre></div>
   <main>
     <section id="size">
       <h2>どれだけ小さくなるか</h2>
-      <p class="claim">写真の PNG 10.6 MB は、劣化なしで 6.2 MB に。非可逆なら 840 KB まで小さくなります。</p>
-      <p>実際の画像 4 枚を Optiman で変換して、サイズを測りました。ふだんは「劣化なし」で、画質はそのまま、容量だけが減ります。もっと減らしたいときは、設定で「非可逆」に切り替えられます。</p>
+      <p class="claim">写真の PNG 10.6 MB は、劣化なしで 6.2 MB に。画質「高」なら 840 KB まで小さくなります。</p>
+      <p>実際の画像 4 枚を Optiman で変換して、サイズを測りました。画質は 4 段階から選べます。既定の「最高」は劣化なしで、画質はそのまま、容量だけが減ります。もっと減らしたいときは、設定で「高」「中」「低」を選びます。</p>
       <div class="table-wrap">
         <table class="measure">
-          <caption class="sr-only">4 枚の画像を変換したあとのサイズ。棒は元のサイズに対する大きさ</caption>
-          <colgroup><col class="c-name"><col><col class="c-default"><col><col></colgroup>
-          <thead><tr><th scope="col">画像</th><th scope="col">元のサイズ</th><th scope="col">劣化なし<span class="sub">既定</span></th><th scope="col">非可逆<span class="sub">品質 90</span></th><th scope="col">非可逆<span class="sub">品質 60</span></th></tr></thead>
+          <caption class="sr-only">4 枚の画像を画質ごとに変換したあとのサイズ。棒は元のサイズに対する大きさ</caption>
+          <colgroup><col class="c-name"><col><col class="c-default"><col><col><col></colgroup>
+          <thead><tr><th scope="col">画像</th><th scope="col">元のサイズ</th><th scope="col">最高<span class="sub">劣化なし、既定</span></th><th scope="col">高<span class="sub">非可逆</span></th><th scope="col">中<span class="sub">非可逆</span></th><th scope="col">低<span class="sub">非可逆</span></th></tr></thead>
           <tbody>
-            <tr><th scope="row">写真<span class="sub">JPEG、3840×2160</span></th><td data-label="元のサイズ"><span class="v">5.6 MB</span></td><td data-label="劣化なし"><span class="v">4.4 MB<span class="pct">−21%</span></span><span class="meter" aria-hidden="true"><span style="--r: .79"></span></span></td><td colspan="2" data-label="非可逆" class="same">JPEG は非可逆にしません。いつも劣化なしの 4.4 MB です</td></tr>
-            <tr><th scope="row">写真を PNG で保存したもの<span class="sub">3840×2160</span></th><td data-label="元のサイズ"><span class="v">10.6 MB</span></td><td data-label="劣化なし"><span class="v">6.2 MB<span class="pct">−41%</span></span><span class="meter" aria-hidden="true"><span style="--r: .59"></span></span></td><td data-label="非可逆 品質 90"><span class="v">840 KB<span class="pct">−92%</span></span><span class="meter" aria-hidden="true"><span style="--r: .079"></span></span></td><td data-label="非可逆 品質 60"><span class="v">309 KB<span class="pct">−97%</span></span><span class="meter" aria-hidden="true"><span style="--r: .029"></span></span></td></tr>
-            <tr><th scope="row">イラスト<span class="sub">PNG、3840×3840</span></th><td data-label="元のサイズ"><span class="v">15.7 MB</span></td><td data-label="劣化なし"><span class="v">10.5 MB<span class="pct">−33%</span></span><span class="meter" aria-hidden="true"><span style="--r: .67"></span></span></td><td data-label="非可逆 品質 90"><span class="v">236 KB<span class="pct">−98%</span></span><span class="meter" aria-hidden="true"><span style="--r: .015"></span></span></td><td data-label="非可逆 品質 60"><span class="v">100 KB<span class="pct">−99%</span></span><span class="meter" aria-hidden="true"><span style="--r: .0064"></span></span></td></tr>
-            <tr><th scope="row">スクリーンショット<span class="sub">PNG、2880×1800</span></th><td data-label="元のサイズ"><span class="v">451 KB</span></td><td data-label="劣化なし"><span class="v">232 KB<span class="pct">−49%</span></span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span></td><td data-label="非可逆 品質 90"><span class="v">232 KB<span class="pct">−49%</span></span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なしで保存</span></td><td data-label="非可逆 品質 60"><span class="v">131 KB<span class="pct">−71%</span></span><span class="meter" aria-hidden="true"><span style="--r: .29"></span></span></td></tr>
+            <tr><th scope="row">写真<span class="sub">JPEG、3840×2160</span></th><td data-label="元のサイズ"><span class="v">5.6 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">4.4 MB</span><span class="pct">−21%</span><span class="meter" aria-hidden="true"><span style="--r: .79"></span></span></span></td><td colspan="3" data-label="高・中・低" class="same">JPEG はどの画質でも劣化なしの 4.4 MB です</td></tr>
+            <tr><th scope="row">写真を PNG で保存したもの<span class="sub">3840×2160</span></th><td data-label="元のサイズ"><span class="v">10.6 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">6.2 MB</span><span class="pct">−41%</span><span class="meter" aria-hidden="true"><span style="--r: .59"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">840 KB</span><span class="pct">−92%</span><span class="meter" aria-hidden="true"><span style="--r: .079"></span></span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">528 KB</span><span class="pct">−95%</span><span class="meter" aria-hidden="true"><span style="--r: .050"></span></span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">392 KB</span><span class="pct">−96%</span><span class="meter" aria-hidden="true"><span style="--r: .037"></span></span></span></td></tr>
+            <tr><th scope="row">イラスト<span class="sub">PNG、3840×3840</span></th><td data-label="元のサイズ"><span class="v">15.7 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">10.5 MB</span><span class="pct">−33%</span><span class="meter" aria-hidden="true"><span style="--r: .67"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">236 KB</span><span class="pct">−98%</span><span class="meter" aria-hidden="true"><span style="--r: .015"></span></span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">139 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0089"></span></span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">117 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0075"></span></span></span></td></tr>
+            <tr><th scope="row">スクリーンショット<span class="sub">PNG、2880×1800</span></th><td data-label="元のサイズ"><span class="v">451 KB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">200 KB</span><span class="pct">−56%</span><span class="meter" aria-hidden="true"><span style="--r: .44"></span></span></span></td></tr>
           </tbody>
         </table>
       </div>
-      <p class="small">棒は元のサイズに対する大きさです。※ 非可逆にしても劣化なしより小さくならない画像は、劣化なしで保存します。画像は macOS 付属の壁紙 (航空写真と Sonoma) と Web ページのスクリーンショットで、Apple Silicon の Mac で測りました。変換にかかった時間は 1 枚あたり 1〜5 秒です。</p>
+      <p class="small">棒は元のサイズに対する大きさです。※ 非可逆にしても劣化なしより 1 割以上小さくならない画像は、劣化なしで保存します。画像は macOS 付属の壁紙 (航空写真と Sonoma) と Web ページのスクリーンショットで、Apple Silicon の Mac で測りました。変換にかかった時間は 1 枚あたり 1〜5 秒です。</p>
 
-      <h3>劣化なしと非可逆の違い</h3>
+      <h3>最高 (劣化なし) と、高・中・低の違い</h3>
       <div class="table-wrap">
         <table class="choose stack">
           <colgroup><col><col class="c-default"><col></colgroup>
-          <thead><tr><th scope="col"><span class="sr-only">項目</span></th><th scope="col">劣化なし (既定)</th><th scope="col">非可逆 (設定でオン)</th></tr></thead>
+          <thead><tr><th scope="col"><span class="sr-only">項目</span></th><th scope="col">最高 (劣化なし、既定)</th><th scope="col">高・中・低 (非可逆)</th></tr></thead>
           <tbody>
-            <tr><th scope="row">画質</th><td data-label="劣化なし">元とまったく同じ</td><td data-label="非可逆">品質 90 なら、見た目ではほぼ区別できない</td></tr>
-            <tr><th scope="row">大きさ</th><td data-label="劣化なし">写真の PNG で約 6 割に</td><td data-label="非可逆">写真の PNG で約 13 分の 1 に</td></tr>
-            <tr><th scope="row">元に戻す</th><td data-label="劣化なし"><span class="ok">いつでも完全に戻せる</span></td><td data-label="非可逆">戻せない。圧縮したあとの画質のまま</td></tr>
-            <tr><th scope="row">JPEG</th><td data-label="劣化なし">元のファイルに戻せる形で約 2 割減る</td><td data-label="非可逆">同じ。JPEG は非可逆にしない</td></tr>
-            <tr><th scope="row">向いているもの</th><td data-label="劣化なし">大事な写真、あとで編集する画像</td><td data-label="非可逆">見返すだけの画像、容量を大きく空けたいとき</td></tr>
+            <tr><th scope="row">画質</th><td data-label="最高">元とまったく同じ</td><td data-label="高・中・低">「高」なら見た目ではほぼ区別できない。「中」「低」は拡大すると分かることがある</td></tr>
+            <tr><th scope="row">大きさ</th><td data-label="最高">写真の PNG で約 6 割に</td><td data-label="高・中・低">写真の PNG で「高」は約 13 分の 1、「低」は約 27 分の 1 に</td></tr>
+            <tr><th scope="row">元に戻す</th><td data-label="最高"><span class="ok">いつでも完全に戻せる</span></td><td data-label="高・中・低">戻せない。圧縮したあとの画質のまま</td></tr>
+            <tr><th scope="row">JPEG</th><td data-label="最高">元のファイルに戻せる形で約 2 割減る</td><td data-label="高・中・低">同じ。JPEG はどの画質でも劣化なし</td></tr>
+            <tr><th scope="row">向いているもの</th><td data-label="最高">大事な写真、あとで編集する画像</td><td data-label="高・中・低">見返すだけの画像、容量を大きく空けたいとき</td></tr>
           </tbody>
         </table>
       </div>
 
-      <h3>劣化なしなら、元の画像にそのまま戻せます</h3>
-      <p>上の 4 枚を劣化なしで変換してから <code>optiman restore</code> で戻し、元の画像と比べました。JPEG は元のファイルとバイト単位で同じに戻り、PNG の 3 枚は合計 2,822 万画素がひとつ残らず元と同じでした。TIFF、BMP、WebP も、同じ画素の PNG として戻せます。</p>
+      <h3>最高 (劣化なし) なら、元の画像にそのまま戻せます</h3>
+      <p>上の 4 枚を「最高」で変換してから <code>optiman restore</code> で戻し、元の画像と比べました。JPEG は元のファイルとバイト単位で同じに戻り、PNG の 3 枚は合計 2,822 万画素がひとつ残らず元と同じでした。TIFF、BMP、WebP も、同じ画素の PNG として戻せます。</p>
       <ol class="flow" aria-label="写真の PNG を変換して戻した例">
         <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.png</span><span class="f-size">10.6 MB</span><span class="f-note">元の画像</span></li>
-        <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.jxl</span><span class="f-size">6.2 MB</span><span class="f-note">劣化なしで変換</span></li>
+        <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.jxl</span><span class="f-size">6.2 MB</span><span class="f-note">最高 (劣化なし) で変換</span></li>
         <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.png</span><span class="f-size">829 万画素</span><span class="f-note ok">すべて元と一致</span></li>
       </ol>
     </section>
@@ -527,7 +531,7 @@ optiman install</code></pre></div>
           <tbody>
             <tr><th scope="row">JPEG</th><td data-label="変換のしかた">JPEG のロスレス再圧縮。EXIF、XMP、ICC も保持</td><td data-label="消す前の確認">JPEG XL から復元した JPEG が、元ファイルと<strong>バイト単位で一致</strong>すること</td></tr>
             <tr><th scope="row">PNG、TIFF、BMP、ロスレス WebP</th><td data-label="変換のしかた">完全ロスレス。色空間、16 bit、透過、向き、EXIF / XMP を保持</td><td data-label="消す前の確認">デコードした画素が、元と<strong>完全に一致</strong>すること</td></tr>
-            <tr><th scope="row">PNG など (非可逆を選んだとき)</th><td data-label="変換のしかた">非可逆の JPEG XL。透過、向き、EXIF / XMP は保持</td><td data-label="消す前の確認">デコードでき、元の画像と<strong>大きく違わない</strong>こと</td></tr>
+            <tr><th scope="row">PNG など (画質を高・中・低にしたとき)</th><td data-label="変換のしかた">非可逆の JPEG XL。透過、向き、EXIF / XMP は保持</td><td data-label="消す前の確認">デコードでき、元の画像と<strong>大きく違わない</strong>こと</td></tr>
             <tr><th scope="row">HEIC、非可逆 WebP、RAW など</th><td colspan="2" data-label="変換のしかた">変換しません。劣化なしでは変換できないため、元のまま残します</td></tr>
           </tbody>
         </table>
@@ -558,7 +562,7 @@ optiman install</code></pre></div>
         <dt>安全な置き換え</dt>
         <dd>確認、一時ファイルへの書き込みと fsync、rename、元ファイルが変わっていないかの確認、の順に進めます。日時や Finder タグも引き継ぎます。</dd>
         <dt>設定画面</dt>
-        <dd>圧縮の強さ、非可逆圧縮のオンとオフと品質、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
+        <dd>画質 (最高、高、中、低)、圧縮の強さ、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
         <dt>OS のネイティブ API</dt>
         <dd>Rust から FSEvents、launchd、ImageIO、AppKit (macOS)、ReadDirectoryChangesW、IOCP、WIC、Win32 (Windows) を直接呼び出します。</dd>
         <dt>公式の JPEG XL 実装</dt>
@@ -572,10 +576,10 @@ optiman install</code></pre></div>
         <table class="cmds stack">
           <thead><tr><th scope="col">コマンド</th><th scope="col">内容</th></tr></thead>
           <tbody>
-            <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--lossy</code> <code>--lossless</code> <code>--quality 60-95</code> <code>--yes</code>)</td></tr>
+            <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--quality lossless|high|medium|low</code> <code>--yes</code>)</td></tr>
             <tr><td><code>settings</code></td><td>設定画面を開きます</td></tr>
             <tr><td><code>status</code></td><td>状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
-            <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ。<code>--lossy</code> <code>--quality</code> で非可逆に)</td></tr>
+            <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ。<code>--quality</code> で画質を指定)</td></tr>
             <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
             <tr><td><code>start</code> <code>stop</code> <code>restart</code></td><td>監視を開始、停止、再起動します</td></tr>
             <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>

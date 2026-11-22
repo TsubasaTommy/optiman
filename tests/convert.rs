@@ -4,7 +4,7 @@ use std::assert_matches;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use optiman::config::{Config, OriginalPolicy};
+use optiman::config::{Config, OriginalPolicy, Quality};
 use optiman::convert::{ConvertCtx, Outcome, convert_file};
 use optiman::{jxl, platform, restore};
 
@@ -106,7 +106,7 @@ fn lossy_sources_are_not_converted() {
 }
 
 fn lossy_ctx(original: OriginalPolicy) -> ConvertCtx {
-    let cfg = Config { original, effort: 3, skip_if_larger: false, lossy: true, ..Config::default() };
+    let cfg = Config { original, effort: 3, skip_if_larger: false, quality: Quality::High, ..Config::default() };
     ConvertCtx::new(&cfg)
 }
 
@@ -128,9 +128,9 @@ fn lossy_mode_is_close_to_the_source_and_smaller() {
         fs::remove_file(&lossless).unwrap();
         let out = converted(convert_file(&lossy_ctx(OriginalPolicy::Keep), &src), name);
         let bytes = fs::read(&out).unwrap();
-        if name == "gray.png" {
-            // A flat 608-byte gradient: lossy would be larger than the source, so it falls back to
-            // lossless, which is exact.
+        if ["gray.png", "rgb16.png"].contains(&name) {
+            // Tiny, flat test images: lossy saves under 10% over lossless (or is larger), so the
+            // exact lossless result is kept.
             jxl::verify_lossless(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
             continue;
         }

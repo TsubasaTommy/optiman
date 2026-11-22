@@ -39,7 +39,7 @@ impl ConvertCtx {
     pub fn new(cfg: &Config) -> ConvertCtx {
         ConvertCtx {
             effort: cfg.effort,
-            quality: cfg.lossy.then_some(cfg.quality),
+            quality: cfg.quality.jxl_quality(),
             threads: default_threads(),
             original: cfg.original,
             skip_if_larger: cfg.skip_if_larger,
@@ -233,11 +233,12 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             let mut jxl = jxl::encode_pixels(&img, &meta, &ctx.options()).map_err(encode_err)?;
             let mut lossy = ctx.quality.is_some();
             if lossy && jxl.len() as u64 * 2 > size {
-                // Lossy barely helped: screenshots and graphics are often smaller lossless (and
-                // exact). Photos shrink far below half and never pay for this second encode.
+                // Lossy barely helped: screenshots and graphics are often about as small lossless
+                // (and exact). Losing quality must save at least 10% over lossless to be worth it.
+                // Photos shrink far below half and never pay for this second encode.
                 let lossless = EncodeOptions { quality: None, ..ctx.options() };
                 let exact = jxl::encode_pixels(&img, &meta, &lossless).map_err(encode_err)?;
-                if exact.len() <= jxl.len() {
+                if jxl.len() * 10 >= exact.len() * 9 {
                     jxl = exact;
                     lossy = false;
                 }

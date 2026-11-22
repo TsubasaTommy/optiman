@@ -35,10 +35,55 @@ impl OriginalPolicy {
 pub const EFFORT_RANGE: RangeInclusive<u8> = 1..=9;
 pub const DEFAULT_EFFORT: u8 = 7;
 
-/// Quality for the optional lossy mode (libjxl's JPEG-style scale; its recommended range).
-pub const QUALITY_RANGE: RangeInclusive<u8> = 60..=95;
-/// 90 = libjxl distance 1.0, "visually lossless".
-pub const DEFAULT_QUALITY: u8 = 90;
+/// Image quality for PNG, TIFF, BMP and lossless WebP. JPEG is always recompressed losslessly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    /// 最高: 劣化なし (元とまったく同じ。いつでも元に戻せる)
+    #[default]
+    Lossless,
+    /// 高: 見た目ではほぼ区別できない
+    High,
+    /// 中: よく見ると分かることがある
+    Medium,
+    /// 低: いちばん小さい
+    Low,
+}
+
+impl Quality {
+    pub const ALL: [Quality; 4] = [Quality::Lossless, Quality::High, Quality::Medium, Quality::Low];
+
+    /// libjxl's JPEG-style quality for a lossy encode (`None` = lossless). All three stay inside
+    /// libjxl's recommended range (distance 1.0, 1.9 and 2.8).
+    pub fn jxl_quality(self) -> Option<u8> {
+        match self {
+            Quality::Lossless => None,
+            Quality::High => Some(90),
+            Quality::Medium => Some(80),
+            Quality::Low => Some(70),
+        }
+    }
+
+    /// Name shown to people.
+    pub fn name(self) -> &'static str {
+        match self {
+            Quality::Lossless => "最高 (劣化なし)",
+            Quality::High => "高",
+            Quality::Medium => "中",
+            Quality::Low => "低",
+        }
+    }
+
+    /// One line explaining what the choice means.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Quality::Lossless => "元とまったく同じ画質で、いつでも元に戻せます。",
+            Quality::High => "見た目ではほぼ区別できません。元の画質には戻せません。",
+            Quality::Medium => "拡大するとわずかに分かることがあります。元の画質には戻せません。",
+            Quality::Low => "いちばん小さくなります。元の画質には戻せません。",
+        }
+    }
+}
 
 /// Formats that convert without loss. (HEIC and lossy WebP are lossy sources and are skipped.)
 pub const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"];
@@ -58,10 +103,8 @@ pub struct Config {
     pub exclude_folders: Vec<String>,
     /// Compression strength 1-9 (libjxl effort). Changes size and time, never quality.
     pub effort: u8,
-    /// Encode PNG/TIFF/BMP/lossless WebP lossily at `quality`. JPEG stays lossless either way.
-    pub lossy: bool,
-    /// Quality for `lossy` (60-95).
-    pub quality: u8,
+    /// Image quality for PNG/TIFF/BMP/lossless WebP. JPEG stays lossless either way.
+    pub quality: Quality,
     pub original: OriginalPolicy,
     /// Convert photos that already exist when the agent starts.
     pub scan_existing: bool,
@@ -82,8 +125,7 @@ impl Default for Config {
             folders: vec![contract_tilde(&platform::paths::pictures_dir())],
             exclude_folders: Vec::new(),
             effort: DEFAULT_EFFORT,
-            lossy: false,
-            quality: DEFAULT_QUALITY,
+            quality: Quality::Lossless,
             original: OriginalPolicy::Delete,
             scan_existing: false,
             jobs: 0,
@@ -102,8 +144,8 @@ const HEADER: &str = "\
 # folders         変換するフォルダ (サブフォルダも対象)
 # exclude_folders 変換しないフォルダ (folders の中で除外したい場所)
 # effort          圧縮の強さ 1(速い)-9(小さい) 既定 7。変わるのはサイズと時間だけで、画質は変わらない
-# lossy           true にすると PNG・TIFF・BMP・ロスレス WebP を非可逆で圧縮する (JPEG は常に劣化なし)
-# quality         lossy のときの品質 60-95 既定 90 (90 で見た目ではほぼ区別できない)
+# quality         PNG、TIFF、BMP、ロスレス WebP の画質: \"lossless\"(最高・劣化なし) / \"high\"(高) / \"medium\"(中) / \"low\"(低)
+#                 高・中・低は非可逆で、元の画質には戻せない。JPEG はどれでも劣化なし
 # original        変換後の元ファイル: \"delete\"(完全削除) / \"trash\"(ゴミ箱) / \"keep\"(残す)
 # scan_existing   起動時に既存の写真も変換するか
 # jobs            同時変換数 (0 = 自動)
@@ -146,14 +188,6 @@ impl Config {
                 EFFORT_RANGE.start(),
                 EFFORT_RANGE.end(),
                 self.effort
-            );
-        }
-        if !QUALITY_RANGE.contains(&self.quality) {
-            bail!(
-                "quality (非可逆の品質) は {}〜{} で指定してください (現在 {})",
-                QUALITY_RANGE.start(),
-                QUALITY_RANGE.end(),
-                self.quality
             );
         }
         for ext in &self.extensions {
@@ -289,13 +323,23 @@ mod tests {
     }
 
     #[test]
-    fn lossless_by_default_and_quality_range() {
-        let cfg = Config::default();
-        assert!(!cfg.lossy);
-        assert_eq!(cfg.quality, 90);
-        for (q, ok) in [(59, false), (60, true), (90, true), (95, true), (96, false)] {
-            assert_eq!(Config { quality: q, ..Config::default() }.validate().is_ok(), ok, "quality {q}");
+    fn quality_is_lossless_by_default_and_named_in_the_file() {
+        assert_eq!(Config::default().quality, Quality::Lossless);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for (text, q) in [
+            ("lossless", Quality::Lossless),
+            ("high", Quality::High),
+            ("medium", Quality::Medium),
+            ("low", Quality::Low),
+        ] {
+            fs::write(&path, format!("quality = \"{text}\"\n")).unwrap();
+            assert_eq!(Config::load(&path).unwrap().quality, q);
         }
+        fs::write(&path, "quality = 90\n").unwrap();
+        assert!(Config::load(&path).is_err(), "a number is not a quality level");
+        let levels: Vec<_> = Quality::ALL.iter().map(|q| q.jxl_quality()).collect();
+        assert_eq!(levels, [None, Some(90), Some(80), Some(70)]);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 
 use crate::app::{self, agent_running, default_config_path, lock_path_for, log_path_for};
-use crate::config::{self, Config, OriginalPolicy};
+use crate::config::{self, Config, OriginalPolicy, Quality};
 use crate::convert::{ConvertCtx, Outcome, convert_file, default_threads, human};
 use crate::daemon::{self, state_path_for};
 use crate::filter::Filter;
@@ -104,15 +104,9 @@ pub struct InstallArgs {
     /// 圧縮の強さ 1-9 (変わるのはサイズと時間だけ)
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
     pub effort: Option<u8>,
-    /// PNG・TIFF・BMP・ロスレス WebP を非可逆で圧縮する (JPEG は常に劣化なし)
-    #[arg(long, conflicts_with = "lossless")]
-    pub lossy: bool,
-    /// 劣化なしに戻す (既定)
-    #[arg(long)]
-    pub lossless: bool,
-    /// 非可逆の品質 60-95 (既定 90)
-    #[arg(long, value_parser = clap::value_parser!(u8).range(60..=95))]
-    pub quality: Option<u8>,
+    /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
+    #[arg(long, value_enum)]
+    pub quality: Option<Quality>,
     /// 確認なしで進める
     #[arg(long, short = 'y')]
     pub yes: bool,
@@ -135,15 +129,9 @@ pub struct ConvertArgs {
     /// 圧縮の強さ 1-9
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
     pub effort: Option<u8>,
-    /// PNG・TIFF・BMP・ロスレス WebP を非可逆で圧縮する (JPEG は常に劣化なし)
-    #[arg(long, conflicts_with = "lossless")]
-    pub lossy: bool,
-    /// 劣化なしに戻す (既定)
-    #[arg(long)]
-    pub lossless: bool,
-    /// 非可逆の品質 60-95 (既定 90)
-    #[arg(long, value_parser = clap::value_parser!(u8).range(60..=95))]
-    pub quality: Option<u8>,
+    /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
+    #[arg(long, value_enum)]
+    pub quality: Option<Quality>,
     /// 何が変換されるか表示するだけ
     #[arg(long)]
     pub dry_run: bool,
@@ -174,18 +162,6 @@ pub struct WorkerArgs {
     pub skip_if_larger: bool,
     #[arg(long)]
     pub quality: Option<u8>,
-}
-
-/// Applies `--lossy` / `--lossless` / `--quality` to a config.
-fn apply_mode(cfg: &mut Config, lossy: bool, lossless: bool, quality: Option<u8>) {
-    if lossy {
-        cfg.lossy = true;
-    } else if lossless {
-        cfg.lossy = false;
-    }
-    if let Some(q) = quality {
-        cfg.quality = q;
-    }
 }
 
 pub fn main() -> i32 {
@@ -389,7 +365,9 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     if let Some(e) = args.effort {
         cfg.effort = e;
     }
-    apply_mode(&mut cfg, args.lossy, args.lossless, args.quality);
+    if let Some(q) = args.quality {
+        cfg.quality = q;
+    }
     cfg.validate()?;
 
     if cfg.scan_existing {
@@ -552,7 +530,9 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     if let Some(e) = args.effort {
         cfg.effort = e;
     }
-    apply_mode(&mut cfg, args.lossy, args.lossless, args.quality);
+    if let Some(q) = args.quality {
+        cfg.quality = q;
+    }
     cfg.validate()?;
     let filter = Filter::new(&cfg);
     let mut files = Vec::new();

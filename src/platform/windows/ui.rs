@@ -33,13 +33,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetWindowPos,
     SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
     WM_DESTROY, WM_DPICHANGED, WM_HSCROLL, WM_SETFONT, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_CONTROLPARENT, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    WS_EX_CONTROLPARENT, WS_GROUP, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::{PCWSTR, w};
 
 use super::{ensure_com, image};
 use crate::app::{self, Settings};
-use crate::config::{Config, EFFORT_RANGE, QUALITY_RANGE};
+use crate::config::{Config, EFFORT_RANGE, Quality};
 
 const WIDTH: i32 = 560;
 const HEIGHT: i32 = 624;
@@ -49,18 +49,16 @@ const ID_REMOVE_INCLUDE: u16 = 102;
 const ID_ADD_EXCLUDE: u16 = 103;
 const ID_REMOVE_EXCLUDE: u16 = 104;
 const ID_INSTALL_EXTENSION: u16 = 105;
-const ID_LOSSY: u16 = 106;
+/// The quality radio buttons are `ID_QUALITY + index in Quality::ALL`.
+const ID_QUALITY: u16 = 110;
 const ID_SLIDER: u16 = 201;
 const ID_INCLUDE_LIST: u16 = 202;
 const ID_EXCLUDE_LIST: u16 = 203;
-const ID_QUALITY_SLIDER: u16 = 204;
 /// `TBM_GETPOS` is `WM_USER` (not exported by the windows crate).
 const TBM_GETPOS: u32 = 0x0400;
-/// Check box messages and style (winuser.h).
-const BM_GETCHECK: u32 = 0x00F0;
+/// Radio button message and style (winuser.h).
 const BM_SETCHECK: u32 = 0x00F1;
-const BST_CHECKED: usize = 1;
-const BS_AUTOCHECKBOX: u32 = 0x0003;
+const BS_AUTORADIOBUTTON: u32 = 0x0009;
 /// Posted by the extension installer thread; `wparam` is 1 on success.
 const WM_EXTENSION_DONE: u32 = WM_APP + 1;
 
@@ -76,15 +74,12 @@ struct Ui {
     include: RefCell<Vec<PathBuf>>,
     exclude: RefCell<Vec<PathBuf>>,
     effort: Cell<u8>,
-    lossy: Cell<bool>,
-    quality: Cell<u8>,
+    quality: Cell<Quality>,
     children: RefCell<Vec<Child>>,
     font: Cell<HFONT>,
     slider: Cell<HWND>,
     effort_label: Cell<HWND>,
-    lossy_check: Cell<HWND>,
-    quality_slider: Cell<HWND>,
-    quality_label: Cell<HWND>,
+    quality_note: Cell<HWND>,
     include_list: Cell<HWND>,
     exclude_list: Cell<HWND>,
     hint_label: Cell<HWND>,
@@ -175,7 +170,7 @@ impl Ui {
 
     fn build(&self) {
         self.label(
-            "写真を JPEG XL に変換します。既定では画質は一切劣化しません: JPEG は元の JPEG にそのまま戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。HEIC と非可逆 WebP は変換しません。",
+            "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。",
             [20, 16, 520, 52],
         );
 
@@ -197,29 +192,29 @@ impl Ui {
         self.effort_label.set(self.label(&app::effort_label(self.effort.get()), [440, 86, 110, 20]));
         self.label("速い ← 時間をかけるほど小さくなります (画質は同じ) → 小さい", [130, 112, 400, 18]);
 
-        let lossy = self.add_child(
-            WC_BUTTONW,
-            "非可逆で圧縮する (PNG・TIFF・BMP・ロスレス WebP。JPEG は常に劣化なし)",
-            WS_TABSTOP | WINDOW_STYLE(BS_AUTOCHECKBOX),
-            ID_LOSSY,
-            [20, 142, 520, 22],
-        );
-        unsafe {
-            SendMessageW(lossy, BM_SETCHECK, Some(WPARAM(usize::from(self.lossy.get()))), None);
+        self.label("画質", [20, 148, 106, 20]);
+        let widths = [150, 70, 70, 70];
+        let mut x = 130;
+        for (i, (q, w)) in Quality::ALL.iter().zip(widths).enumerate() {
+            // WS_GROUP on the first button makes the four one group (arrow keys move within it).
+            let group = if i == 0 { WS_GROUP | WS_TABSTOP } else { WINDOW_STYLE::default() };
+            let radio = self.add_child(
+                WC_BUTTONW,
+                q.name(),
+                group | WINDOW_STYLE(BS_AUTORADIOBUTTON),
+                ID_QUALITY + i as u16,
+                [x, 146, w, 22],
+            );
+            if *q == self.quality.get() {
+                unsafe {
+                    SendMessageW(radio, BM_SETCHECK, Some(WPARAM(1)), None);
+                }
+            }
+            x += w + 10;
         }
-        self.lossy_check.set(lossy);
-        self.label("品質", [40, 176, 86, 20]);
-        let quality = self.add_child(TRACKBAR_CLASSW, "", WS_TABSTOP, ID_QUALITY_SLIDER, [130, 170, 300, 30]);
-        unsafe {
-            let (lo, hi) = (*QUALITY_RANGE.start() as isize, *QUALITY_RANGE.end() as isize);
-            SendMessageW(quality, TBM_SETRANGE, Some(WPARAM(0)), Some(LPARAM(lo | (hi << 16))));
-            SendMessageW(quality, TBM_SETPAGESIZE, Some(WPARAM(0)), Some(LPARAM(5)));
-            SendMessageW(quality, TBM_SETPOS, Some(WPARAM(1)), Some(LPARAM(isize::from(self.quality.get()))));
-            let _ = EnableWindow(quality, self.lossy.get());
-        }
-        self.quality_slider.set(quality);
-        self.quality_label.set(self.label(&app::quality_label(self.quality.get()), [440, 176, 110, 20]));
-        self.label("下げるほど小さくなります。元の画質には戻せません", [130, 202, 400, 18]);
+        // WS_GROUP here closes the radio group, so arrow keys stay among the four choices.
+        let note = self.add_child(WC_STATICW, &quality_note(self.quality.get()), WS_GROUP, 0, [130, 174, 410, 40]);
+        self.quality_note.set(note);
 
         self.label("変換するフォルダ (サブフォルダも対象)", [20, 226, 400, 20]);
         self.include_list.set(self.list(ID_INCLUDE_LIST, [20, 248, 410, 110]));
@@ -321,28 +316,16 @@ impl Ui {
         }
     }
 
-    fn lossy_changed(&self) {
-        let checked =
-            unsafe { SendMessageW(self.lossy_check.get(), BM_GETCHECK, None, None) }.0 as usize == BST_CHECKED;
-        self.lossy.set(checked);
-        unsafe {
-            let _ = EnableWindow(self.quality_slider.get(), checked);
-        }
-    }
-
-    fn quality_changed(&self) {
-        let pos = unsafe { SendMessageW(self.quality_slider.get(), TBM_GETPOS, None, None) }.0;
-        let quality = u8::try_from(pos).unwrap_or(90).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end());
-        if quality != self.quality.get() {
-            self.quality.set(quality);
-            set_text(self.quality_label.get(), &app::quality_label(quality));
+    fn quality_changed(&self, index: usize) {
+        if let Some(&q) = Quality::ALL.get(index) {
+            self.quality.set(q);
+            set_text(self.quality_note.get(), &quality_note(q));
         }
     }
 
     fn save(&self) {
         let settings = Settings {
             effort: self.effort.get(),
-            lossy: self.lossy.get(),
             quality: self.quality.get(),
             include: self.include.borrow().clone(),
             exclude: self.exclude.borrow().clone(),
@@ -403,6 +386,11 @@ impl Ui {
     }
 }
 
+/// The line under the quality choices: what the selected level means.
+fn quality_note(q: Quality) -> String {
+    format!("{} JPEG はどの画質でも劣化なしで変換します。", q.describe())
+}
+
 extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     // Clone the handle so no RefCell borrow is held while modal loops (dialogs) re-enter here.
     let Some(ui) = UI.with_borrow(Clone::clone) else {
@@ -420,17 +408,15 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
                 ID_ADD_EXCLUDE => ui.add_folder(false),
                 ID_REMOVE_EXCLUDE => ui.remove_selected(false),
                 ID_INSTALL_EXTENSION => ui.install_extension(),
-                ID_LOSSY => ui.lossy_changed(),
+                id if (ID_QUALITY..ID_QUALITY + Quality::ALL.len() as u16).contains(&id) => {
+                    ui.quality_changed(usize::from(id - ID_QUALITY))
+                }
                 _ => return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
             }
             LRESULT(0)
         }
         WM_HSCROLL if lparam.0 == ui.slider.get().0 as isize => {
             ui.effort_changed();
-            LRESULT(0)
-        }
-        WM_HSCROLL if lparam.0 == ui.quality_slider.get().0 as isize => {
-            ui.quality_changed();
             LRESULT(0)
         }
         WM_EXTENSION_DONE => {
@@ -502,15 +488,12 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         include: RefCell::new(cfg.folder_paths()),
         exclude: RefCell::new(cfg.exclude_folder_paths()),
         effort: Cell::new(cfg.effort.clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end())),
-        lossy: Cell::new(cfg.lossy),
-        quality: Cell::new(cfg.quality.clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())),
+        quality: Cell::new(cfg.quality),
         children: RefCell::new(Vec::new()),
         font: Cell::new(HFONT::default()),
         slider: Cell::new(HWND::default()),
         effort_label: Cell::new(HWND::default()),
-        lossy_check: Cell::new(HWND::default()),
-        quality_slider: Cell::new(HWND::default()),
-        quality_label: Cell::new(HWND::default()),
+        quality_note: Cell::new(HWND::default()),
         include_list: Cell::new(HWND::default()),
         exclude_list: Cell::new(HWND::default()),
         hint_label: Cell::new(HWND::default()),

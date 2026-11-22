@@ -624,7 +624,7 @@ mod tests {
             let mut img = smooth(96, 64, bits, alpha, gray);
             img.orientation = orientation;
             img.color = color;
-            for quality in [60, 90] {
+            for quality in [70, 80, 90] {
                 let o = EncodeOptions { quality: Some(quality), ..O };
                 let jxl = encode_pixels(&img, &Metadata::default(), &o).unwrap();
                 let psnr = verify_lossy(&jxl, &img).unwrap_or_else(|e| panic!("{bits} {alpha} {gray} q{quality}: {e}"));

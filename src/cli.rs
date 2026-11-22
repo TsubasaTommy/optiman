@@ -18,7 +18,7 @@ use crate::filter::Filter;
 use crate::platform::{self, autostart, paths};
 use crate::state::State;
 use crate::walk::walk;
-use crate::{APP_NAME, DISPLAY_NAME, VERSION, logger, restore};
+use crate::{APP_NAME, DISPLAY_NAME, VERSION, logger, restore, update};
 
 /// How long an on-demand (launchd) run stays alive after the last activity.
 const ON_DEMAND_IDLE_EXIT: Duration = Duration::from_secs(5);
@@ -69,6 +69,12 @@ pub enum Command {
     Restore(RestoreArgs),
     /// 設定ファイルの場所と内容を表示する
     Config,
+    /// 新しいバージョンがあれば更新する
+    Update {
+        /// (自動実行用) 自動アップデートがオンで、前回の確認から時間がたっているときだけ確認する
+        #[arg(long, hide = true)]
+        auto: bool,
+    },
     /// (内部用) 標準入力から受け取ったファイルを変換する使い捨てプロセス
     #[command(hide = true)]
     Worker(WorkerArgs),
@@ -209,6 +215,16 @@ pub fn main() -> i32 {
         Command::Convert(args) => convert(&config_path, args),
         Command::Restore(args) => restore_cmd(&config_path, args),
         Command::Config => show_config(&config_path),
+        Command::Update { auto: true } => {
+            if let Err(e) = logger::init_file(log_path_for(&config_path)) {
+                eprintln!("ログファイルを開けません: {e}");
+            }
+            update::log_result(update::check(&config_path, true));
+            return 0;
+        }
+        Command::Update { auto: false } => {
+            update::check(&config_path, false).map(|message| println!("{}", message.unwrap_or_default()))
+        }
         Command::Viewer { install, open_store } => return viewer_cmd(install, open_store),
         Command::Worker(args) => {
             let ctx = ConvertCtx {
@@ -261,9 +277,8 @@ pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
         crate::info!("すでに起動しています");
         return 0;
     }
-    #[cfg(target_os = "macos")]
-    if let Err(e) = autostart::refresh_app_bundle() {
-        crate::warn!("設定アプリを更新できません: {e:#}");
+    if let Ok(spec) = app::agent_spec(config_path, &cfg) {
+        platform::update::on_agent_start(&spec);
     }
     let opts = daemon::Options { exit_when_idle: on_demand.then_some(ON_DEMAND_IDLE_EXIT) };
     match daemon::run(cfg, config_path, opts) {
@@ -455,6 +470,7 @@ fn purge_files(config_path: &Path) -> Vec<PathBuf> {
         lock_path_for(config_path),
         logger::backup_path(&log),
         log.clone(),
+        update::stamp_path(config_path),
     ];
     if let Some(log_dir) = log.parent() {
         files.extend(autostart::LOG_FILES.iter().map(|f| log_dir.join(f)));

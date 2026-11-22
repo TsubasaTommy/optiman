@@ -1,9 +1,9 @@
 //! OS-specific code. Each platform module exposes the same submodules:
-//! `paths`, `events`, `image`, `fsutil`, `power`, `autostart` and `ui`.
+//! `paths`, `events`, `image`, `fsutil`, `power`, `autostart`, `ui` and `update`.
 
 use std::fs::{File, FileTimes, Metadata};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Copies the modified, accessed and created times of `src` onto `dst`.
 pub fn copy_times(dst: &File, src: &Metadata) -> io::Result<()> {
@@ -25,21 +25,23 @@ pub fn copy_times(dst: &File, src: &Metadata) -> io::Result<()> {
 }
 
 /// What `autostart::install` needs to register the agent.
-pub struct AgentSpec<'a> {
-    pub exe: &'a Path,
-    pub config: &'a Path,
-    pub log_dir: &'a Path,
-    pub folders: &'a [PathBuf],
+pub struct AgentSpec {
+    pub exe: PathBuf,
+    pub config: PathBuf,
+    pub log_dir: PathBuf,
+    pub folders: Vec<PathBuf>,
+    /// Also schedule the daily update check (macOS; the Windows agent runs it itself).
+    pub auto_update: bool,
 }
 
 cfg_select! {
     target_os = "macos" => {
         mod macos;
-        pub use macos::{autostart, events, fsutil, image, paths, power, ui};
+        pub use macos::{autostart, events, fsutil, image, paths, power, ui, update};
     }
     windows => {
         mod windows;
-        pub use self::windows::{autostart, events, fsutil, image, paths, power, ui};
+        pub use self::windows::{autostart, events, fsutil, image, paths, power, ui, update};
     }
     _ => {
         compile_error!("optiman supports macOS and Windows only");

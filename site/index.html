@@ -443,6 +443,7 @@ optiman install</code></pre></div>
       <li><a href="#how">待っている間と変換中</a></li>
       <li><a href="#usage">使い方</a></li>
       <li><a href="#downloads">ダウンロード</a></li>
+      <li><a href="#update">アップデート</a></li>
       <li><a href="#uninstall">アンインストール</a></li>
     </ol>
   </nav>
@@ -613,6 +614,7 @@ optiman install</code></pre></div>
             <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
             <tr><td><code>start</code> <code>stop</code> <code>restart</code></td><td>監視を開始、停止、再起動します</td></tr>
             <tr><td><code>config</code></td><td>設定ファイルの場所と内容を表示します</td></tr>
+            <tr><td><code>update</code></td><td>新しいバージョンがあれば、今すぐ更新します</td></tr>
             <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
           </tbody>
         </table>
@@ -638,6 +640,16 @@ optiman install</code></pre></div>
         <li><a href="https://github.com/TsubasaTommy/optiman/releases">すべてのバージョン</a></li>
         <li><a href="https://github.com/TsubasaTommy/optiman">ソースコード</a></li>
       </ul>
+    </section>
+
+    <section id="update">
+      <h2>アップデート</h2>
+      <p>新しいバージョンは自動でインストールされます。確認は 1 日 1 回で、設定はそのまま引き継ぎます。</p>
+      <ul>
+        <li>macOS (Homebrew): 毎日 12 時とログイン時に確認し、新しい版があれば <code>brew upgrade</code> を実行します。</li>
+        <li>Windows (インストーラー): 新しい版のインストーラーをダウンロードして SHA256 を照合してから、画面を出さずに実行します。管理者権限は要りません。</li>
+      </ul>
+      <p class="small">止めるには、設定画面の「自動でアップデートする」を外します。zip 版や手で置いた場合は自動では更新されないので、新しい版をダウンロードして置き換えてください。</p>
     </section>
 
     <section id="uninstall">

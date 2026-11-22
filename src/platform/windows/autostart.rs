@@ -1,9 +1,8 @@
 //! Per-user autostart through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The agent
 //! is a GUI-subsystem executable (no console window) and reads the folders from the config.
 
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use windows::Win32::Foundation::ERROR_FILE_NOT_FOUND;
@@ -11,12 +10,9 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW,
     RegDeleteValueW, RegSetValueExW,
 };
-use windows::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, PROCESS_CREATION_FLAGS,
-};
 use windows::core::{PCWSTR, w};
 
-use super::{reg_string, wide};
+use super::{reg_string, spawn_detached, wide};
 
 use crate::platform::AgentSpec;
 
@@ -82,9 +78,9 @@ pub fn is_registered() -> bool {
 }
 
 /// Writes the Run entry and starts the agent if asked (the caller stops a running one first).
-pub fn install(spec: &AgentSpec<'_>, start_now: bool) -> Result<()> {
-    std::fs::create_dir_all(spec.log_dir).ok();
-    let cmd = command_line(spec.exe, spec.config);
+pub fn install(spec: &AgentSpec, start_now: bool) -> Result<()> {
+    std::fs::create_dir_all(&spec.log_dir).ok();
+    let cmd = command_line(&spec.exe, &spec.config);
     let data: Vec<u8> = wide(&cmd).iter().flat_map(|u| u.to_le_bytes()).collect();
     with_run_key(|key| {
         unsafe { RegSetValueExW(key, VALUE_NAME, None, REG_SZ, Some(&data)) }.ok().context("自動起動を登録できません")
@@ -98,18 +94,7 @@ pub fn install(spec: &AgentSpec<'_>, start_now: bool) -> Result<()> {
 pub fn start() -> Result<()> {
     let cmd = registered_command().context("自動起動が未登録です。先に `install` を実行してください")?;
     let (exe, config) = parse_command_line(&cmd).context("登録内容を解釈できません")?;
-    let spawn = |flags: PROCESS_CREATION_FLAGS| {
-        Command::new(&exe)
-            .arg("--config")
-            .arg(&config)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(flags.0)
-            .spawn()
-    };
-    spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
-        .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
+    spawn_detached(Command::new(&exe).arg("--config").arg(&config))
         .with_context(|| format!("起動できません: {}", exe.display()))?;
     Ok(())
 }

@@ -1,11 +1,15 @@
 //! Runs the real agent binary against a temporary folder.
 
+mod common;
+
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+use common::fixture;
 
 struct Agent {
     child: Child,
@@ -63,10 +67,6 @@ impl Drop for Agent {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
 
 fn write_config(home: &Path, photos: &Path, scan_existing: bool) {
@@ -149,13 +149,9 @@ fn on_demand_run_converts_then_exits() {
     let jxl = photos.path().join("existing.jxl");
     assert!(wait_until(Duration::from_secs(60), || jxl.exists() && !existing.exists()), "not converted");
     agent.wait_for_line("待機状態になったため終了", Duration::from_secs(30));
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let status = loop {
-        if let Some(s) = agent.child.try_wait().unwrap() {
-            break s;
-        }
-        assert!(Instant::now() < deadline, "on-demand run did not exit");
-        std::thread::sleep(Duration::from_millis(100));
-    };
-    assert!(status.success());
+    assert!(
+        wait_until(Duration::from_secs(10), || agent.child.try_wait().unwrap().is_some()),
+        "on-demand run did not exit"
+    );
+    assert!(agent.child.wait().unwrap().success());
 }

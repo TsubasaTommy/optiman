@@ -16,7 +16,7 @@ class Optiman < Formula
     <<~EOS
       Start converting (registers a launchd agent that runs only when a watched folder changes):
         optiman install
-      Open the settings window (folders and compression strength):
+      Open the settings window (folders, quality and compression strength):
         optiman settings
       Before `brew uninstall`, unregister the agent:
         optiman uninstall

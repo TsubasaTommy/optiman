@@ -237,7 +237,7 @@ pub fn viewer_hint() -> Option<String> {
     } else if viewer_extension_supported() {
         Some("JPEG XL をエクスプローラーやフォトで表示するには、Microsoft 公式の無料拡張「JPEG XL Image Extension」が必要です。設定画面の「拡張機能をインストール」から入れられます。".into())
     } else {
-        Some("この Windows では JPEG XL を標準のアプリで表示できません (Windows 11 24H2 以降が必要)。変換は通常どおり行われ、`restore` でいつでも元に戻せます。".into())
+        Some("この Windows では JPEG XL を標準のアプリで表示できません (Windows 11 24H2 以降が必要)。変換は通常どおり行われ、`restore` で JPEG や PNG に戻せます。".into())
     }
 }
 

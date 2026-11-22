@@ -1,5 +1,5 @@
 ; Per-user installer (no administrator rights, no UAC prompt) for Inno Setup 7.
-; Build: ISCC.exe /DAppVersion=0.2.0 /DBinX64=<dir> /DBinArm64=<dir> /DOutputDir=<dir> Optiman.iss
+; Build: ISCC.exe /DAppVersion=<version> /DBinX64=<dir> /DBinArm64=<dir> /DOutputDir=<dir> Optiman.iss
 ;
 ; - Installs the x64 or the native arm64 binaries to %LOCALAPPDATA%\Programs\Optiman.
 ; - Registers the agent (HKCU Run) through `optiman.exe install` and starts it.
@@ -67,16 +67,16 @@ japanese.Registering=変換の監視を登録しています…
 english.Registering=Registering the folder watcher...
 japanese.RegisterFailed=変換の監視を登録できませんでした。このあと開く設定画面で、変換するフォルダを指定して「保存」を押してください。
 english.RegisterFailed=The folder watcher could not be registered. Choose the folders to convert in the settings window that opens next and press Save.
-japanese.OpenSettings=設定画面を開く (変換するフォルダと圧縮の強さ)
-english.OpenSettings=Open the settings (folders and compression strength)
-japanese.SettingsComment=変換するフォルダと圧縮の強さの設定
-english.SettingsComment=Folders and compression strength
+japanese.OpenSettings=設定画面を開く (変換するフォルダ、画質、圧縮の強さ)
+english.OpenSettings=Open the settings (folders, quality and compression strength)
+japanese.SettingsComment=変換するフォルダ、画質、圧縮の強さの設定
+english.SettingsComment=Folders, quality and compression strength
 japanese.OriginalTitle=変換後の元ファイル
 english.OriginalTitle=Original files
-japanese.OriginalDesc=JPEG XL への変換が劣化なしで成功したことを検証した後、元のファイルをどうしますか?
-english.OriginalDesc=What should happen to an original after its lossless conversion has been verified?
-japanese.OriginalPrompt=JPEG は元の JPEG にバイト単位で戻せる形で、PNG・TIFF・BMP・ロスレス WebP は完全ロスレスで変換します。元に戻すには `optiman restore` を使います。
-english.OriginalPrompt=JPEGs are recompressed so the identical JPEG can be rebuilt; PNG, TIFF, BMP and lossless WebP are encoded losslessly. `optiman restore` undoes a conversion.
+japanese.OriginalDesc=JPEG XL への変換が成功したことを検証した後、元のファイルをどうしますか?
+english.OriginalDesc=What should happen to an original after its conversion has been verified?
+japanese.OriginalPrompt=JPEG は元の JPEG にバイト単位で戻せる形で変換します。PNG・TIFF・BMP・ロスレス WebP は、画質が既定の「最高」なら完全ロスレスです。元に戻すには `optiman restore` を使います。
+english.OriginalPrompt=JPEGs are recompressed so the identical JPEG can be rebuilt; PNG, TIFF, BMP and lossless WebP are encoded losslessly at the default quality. `optiman restore` undoes a conversion.
 japanese.OriginalDelete=完全に削除する (容量がいちばん減ります)
 english.OriginalDelete=Delete it (saves the most space)
 japanese.OriginalTrash=ごみ箱へ移動する
@@ -93,8 +93,8 @@ japanese.ScanNewOnly=新しく追加された写真だけ変換する
 english.ScanNewOnly=Only convert newly added photos
 japanese.ScanExisting=すでにある写真も変換する
 english.ScanExisting=Also convert the existing photos
-japanese.ViewerUnsupported=この Windows では JPEG XL をエクスプローラーやフォトで表示できません (Windows 11 24H2 以降が必要です)。変換は通常どおり行われ、`optiman restore` でいつでも元に戻せます。
-english.ViewerUnsupported=This version of Windows cannot show JPEG XL in Explorer or Photos (Windows 11 24H2 or later is required). Conversion still works, and `optiman restore` undoes it at any time.
+japanese.ViewerUnsupported=この Windows では JPEG XL をエクスプローラーやフォトで表示できません (Windows 11 24H2 以降が必要です)。変換は通常どおり行われ、`optiman restore` で JPEG や PNG に戻せます。
+english.ViewerUnsupported=This version of Windows cannot show JPEG XL in Explorer or Photos (Windows 11 24H2 or later is required). Conversion still works, and `optiman restore` turns the files back into JPEG or PNG.
 
 [Tasks]
 Name: "jxlviewer"; Description: "{cm:TaskViewer}"; Check: IsViewerSupported

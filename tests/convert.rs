@@ -1,20 +1,40 @@
-//! End-to-end conversion tests with real files: every conversion must be provably lossless.
+//! End-to-end conversion tests with real files: every result is checked against its source.
+
+mod common;
 
 use std::assert_matches;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use common::fixture;
 use optiman::config::{Config, OriginalPolicy, Quality};
 use optiman::convert::{ConvertCtx, Outcome, convert_file};
+use optiman::image::SourceImage;
 use optiman::{jxl, platform, restore};
 
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+/// Formats encoded losslessly by default (JPEG and the lossy formats have their own tests).
+const LOSSLESS_SOURCES: &[&str] =
+    &["alpha.png", "rgb16.png", "gray.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"];
+
+fn ctx(original: OriginalPolicy, quality: Quality) -> ConvertCtx {
+    ConvertCtx::new(&Config { original, quality, effort: 3, skip_if_larger: false, ..Config::default() })
 }
 
-fn ctx(original: OriginalPolicy) -> ConvertCtx {
-    let cfg = Config { original, effort: 3, skip_if_larger: false, ..Config::default() };
-    ConvertCtx::new(&cfg)
+fn lossless(original: OriginalPolicy) -> ConvertCtx {
+    ctx(original, Quality::Lossless)
+}
+
+/// Decodes `path`, or `None` where the platform has no codec for it (Windows without the WebP
+/// Image Extension, e.g. Windows Server CI).
+fn decode_or_skip(path: &Path) -> Option<SourceImage> {
+    match platform::image::decode(&fs::read(path).unwrap()) {
+        Ok(s) => Some(s),
+        Err(jxl::EncodeError::Unsupported(e)) if cfg!(windows) && path.extension().is_some_and(|x| x == "webp") => {
+            eprintln!("skipping {}: {e}", path.display());
+            None
+        }
+        Err(e) => panic!("{}: {e:?}", path.display()),
+    }
 }
 
 fn copy_to(dir: &Path, name: &str) -> PathBuf {
@@ -50,7 +70,7 @@ fn jpeg_recompression_rebuilds_the_identical_file() {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
         let original = fs::read(&src).unwrap();
-        let out = converted(convert_file(&ctx(OriginalPolicy::Keep), &src), name);
+        let out = converted(convert_file(&lossless(OriginalPolicy::Keep), &src), name);
         assert_eq!(out.extension().unwrap(), "jxl");
         let jxl_bytes = fs::read(&out).unwrap();
         let rebuilt = jxl::reconstruct_jpeg(&jxl_bytes).unwrap().expect("JPEG reconstruction data");
@@ -75,19 +95,11 @@ fn jpeg_orientation_is_kept() {
 
 #[test]
 fn lossless_formats_decode_to_identical_pixels() {
-    for name in ["alpha.png", "rgb16.png", "gray.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"] {
+    for name in LOSSLESS_SOURCES {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
-        let source = match platform::image::decode(&fs::read(&src).unwrap()) {
-            Ok(s) => s,
-            // Windows without the WebP Image Extension (e.g. Windows Server CI) has no WebP codec.
-            Err(jxl::EncodeError::Unsupported(e)) if cfg!(windows) && name.ends_with(".webp") => {
-                eprintln!("skipping {name}: {e}");
-                continue;
-            }
-            Err(e) => panic!("{name}: {e:?}"),
-        };
-        let out = converted(convert_file(&ctx(OriginalPolicy::Keep), &src), name);
+        let Some(source) = decode_or_skip(&src) else { continue };
+        let out = converted(convert_file(&lossless(OriginalPolicy::Keep), &src), name);
         // convert_file already verified; check again independently here.
         jxl::verify_lossless(&fs::read(&out).unwrap(), &source).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
@@ -98,46 +110,35 @@ fn lossy_sources_are_not_converted() {
     for name in ["photo.heic", "photo.webp"] {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
-        let outcome = convert_file(&ctx(OriginalPolicy::Delete), &src);
+        let outcome = convert_file(&lossless(OriginalPolicy::Delete), &src);
         assert_matches!(outcome, Outcome::Skipped { remember: Some(_), .. }, "{name}");
         assert!(src.exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "{name}: nothing written");
     }
 }
 
-fn lossy_ctx(original: OriginalPolicy) -> ConvertCtx {
-    let cfg = Config { original, effort: 3, skip_if_larger: false, quality: Quality::High, ..Config::default() };
-    ConvertCtx::new(&cfg)
-}
-
 #[test]
 fn lossy_mode_is_close_to_the_source_and_smaller() {
-    for name in ["alpha.png", "rgb16.png", "gray.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"] {
+    let mut lossy_results = 0;
+    for name in LOSSLESS_SOURCES {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
-        let source = match platform::image::decode(&fs::read(&src).unwrap()) {
-            Ok(s) => s,
-            Err(jxl::EncodeError::Unsupported(e)) if cfg!(windows) && name.ends_with(".webp") => {
-                eprintln!("skipping {name}: {e}");
-                continue;
-            }
-            Err(e) => panic!("{name}: {e:?}"),
-        };
-        let lossless = converted(convert_file(&ctx(OriginalPolicy::Keep), &src), name);
-        let lossless_size = fs::metadata(&lossless).unwrap().len();
-        fs::remove_file(&lossless).unwrap();
-        let out = converted(convert_file(&lossy_ctx(OriginalPolicy::Keep), &src), name);
+        let Some(source) = decode_or_skip(&src) else { continue };
+        let reference = converted(convert_file(&lossless(OriginalPolicy::Keep), &src), name);
+        let lossless_size = fs::metadata(&reference).unwrap().len();
+        fs::remove_file(&reference).unwrap();
+        let out = converted(convert_file(&ctx(OriginalPolicy::Keep, Quality::High), &src), name);
         let bytes = fs::read(&out).unwrap();
-        if ["gray.png", "rgb16.png"].contains(&name) {
-            // Tiny, flat test images: lossy saves under 10% over lossless (or is larger), so the
-            // exact lossless result is kept.
-            jxl::verify_lossless(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        // Where lossy saves too little (small, flat images), the exact lossless result is kept.
+        if jxl::verify_lossless(&bytes, &source).is_ok() {
             continue;
         }
         let psnr = jxl::verify_lossy(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
         eprintln!("{name}: lossless {lossless_size} B, lossy {} B, PSNR {psnr:.1} dB", bytes.len());
         assert!((bytes.len() as u64) < lossless_size, "{name}: lossy should be smaller than lossless");
+        lossy_results += 1;
     }
+    assert!(lossy_results > 0, "no fixture ended up lossy");
 }
 
 #[test]
@@ -145,12 +146,16 @@ fn lossy_mode_keeps_jpeg_lossless_and_skips_lossy_sources() {
     let dir = tempfile::tempdir().unwrap();
     let src = copy_to(dir.path(), "progressive.jpg");
     let original = fs::read(&src).unwrap();
-    let out = converted(convert_file(&lossy_ctx(OriginalPolicy::Keep), &src), "progressive.jpg");
+    let out = converted(convert_file(&ctx(OriginalPolicy::Keep, Quality::High), &src), "progressive.jpg");
     let rebuilt = jxl::reconstruct_jpeg(&fs::read(&out).unwrap()).unwrap().expect("JPEG reconstruction data");
     assert_eq!(rebuilt, original, "JPEG must stay byte-for-byte restorable in lossy mode");
     for name in ["photo.heic", "photo.webp"] {
         let src = copy_to(dir.path(), name);
-        assert_matches!(convert_file(&lossy_ctx(OriginalPolicy::Delete), &src), Outcome::Skipped { .. }, "{name}");
+        assert_matches!(
+            convert_file(&ctx(OriginalPolicy::Delete, Quality::High), &src),
+            Outcome::Skipped { .. },
+            "{name}"
+        );
         assert!(src.exists());
     }
 }
@@ -164,7 +169,7 @@ fn jpeg_with_gain_map_is_not_converted() {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("hdr.jpg");
     fs::write(&src, &data).unwrap();
-    assert_matches!(convert_file(&ctx(OriginalPolicy::Delete), &src), Outcome::Skipped { .. });
+    assert_matches!(convert_file(&lossless(OriginalPolicy::Delete), &src), Outcome::Skipped { .. });
     assert!(src.exists());
 }
 
@@ -173,7 +178,7 @@ fn delete_policy_removes_original_only_after_success() {
     for name in ["progressive.jpg", "photo.bmp"] {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
-        let outcome = convert_file(&ctx(OriginalPolicy::Delete), &src);
+        let outcome = convert_file(&lossless(OriginalPolicy::Delete), &src);
         assert_matches!(outcome, Outcome::Converted { note: None, .. }, "{name}");
         assert!(!src.exists(), "{name}: original should be deleted");
         let names: Vec<_> = fs::read_dir(dir.path()).unwrap().flatten().map(|e| e.file_name()).collect();
@@ -187,7 +192,7 @@ fn restore_gives_back_the_original() {
     // JPEG: byte-identical file.
     let src = copy_to(dir.path(), "p3.jpg");
     let original = fs::read(&src).unwrap();
-    let out = converted(convert_file(&ctx(OriginalPolicy::Delete), &src), "p3.jpg");
+    let out = converted(convert_file(&lossless(OriginalPolicy::Delete), &src), "p3.jpg");
     let back = restore::restore_file(&out, true).unwrap();
     assert_eq!(fs::read(&back).unwrap(), original);
     assert!(!out.exists());
@@ -195,7 +200,7 @@ fn restore_gives_back_the_original() {
     // PNG with alpha: identical pixels.
     let src = copy_to(dir.path(), "alpha.png");
     let source = platform::image::decode(&fs::read(&src).unwrap()).unwrap();
-    let out = converted(convert_file(&ctx(OriginalPolicy::Delete), &src), "alpha.png");
+    let out = converted(convert_file(&lossless(OriginalPolicy::Delete), &src), "alpha.png");
     let back = restore::restore_file(&out, false).unwrap();
     let restored = platform::image::decode(&fs::read(&back).unwrap()).unwrap();
     assert_eq!((restored.width, restored.height), (source.width, source.height));
@@ -207,7 +212,7 @@ fn corrupt_file_is_skipped_and_kept() {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("broken.png");
     fs::write(&src, b"\x89PNG\r\n\x1a\n this is not really a png").unwrap();
-    let outcome = convert_file(&ctx(OriginalPolicy::Delete), &src);
+    let outcome = convert_file(&lossless(OriginalPolicy::Delete), &src);
     assert_matches!(outcome, Outcome::Skipped { .. } | Outcome::Failed { .. });
     assert!(src.exists());
     let (fp, _) = outcome.remember().expect("corrupt files must be remembered");
@@ -277,7 +282,7 @@ fn never_writes_a_larger_file() {
     let src = dir.path().join("noise.png");
     noise_png(&src, 96, 64);
     let before = fs::metadata(&src).unwrap().len();
-    let mut c = ctx(OriginalPolicy::Delete);
+    let mut c = lossless(OriginalPolicy::Delete);
     c.skip_if_larger = true;
     match convert_file(&c, &src) {
         Outcome::Skipped { remember: Some(_), .. } => {
@@ -293,7 +298,7 @@ fn never_writes_a_larger_file() {
 fn dry_run_touches_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let src = copy_to(dir.path(), "photo.bmp");
-    let mut c = ctx(OriginalPolicy::Delete);
+    let mut c = lossless(OriginalPolicy::Delete);
     c.dry_run = true;
     assert_matches!(convert_file(&c, &src), Outcome::WouldConvert(_));
     assert!(src.exists());

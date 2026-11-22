@@ -1,11 +1,11 @@
 class OptimizeImageFolder < Formula
-  desc "Convert photo folders to JPEG XL without any quality loss, using no resources while idle"
+  desc "Convert photos to JPEG XL without quality loss, using no resources while idle"
   homepage "https://tsubasatommy.github.io/optimize-image-folder/"
   url "https://github.com/TsubasaTommy/optimize-image-folder/releases/download/v@VERSION@/optimize-image-folder-macos-universal.tar.gz"
   sha256 "@SHA256_MACOS@"
   license "MIT"
 
-  depends_on macos: :big_sur
+  depends_on :macos
 
   def install
     bin.install "optimize-image-folder"

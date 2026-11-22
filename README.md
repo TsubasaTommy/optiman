@@ -59,6 +59,8 @@ Homebrew を使わない場合は `curl -fsSL https://tsubasatommy.github.io/opt
 winget install TsubasaTommy.OptimizeImageFolder
 ```
 
+winget への登録は Microsoft の審査中です ([winget-pkgs #486181](https://github.com/microsoft/winget-pkgs/pull/486181))。見つからない場合は、下の Setup.exe か PowerShell のコマンドで入れてください。
+
 [リリース](https://github.com/TsubasaTommy/optimize-image-folder/releases/latest)の `OptimizeImageFolder-Setup.exe` を直接実行しても同じです。x64 と ARM64 の両方を含むユーザー単位のインストーラーで、管理者権限は不要です。インストール中に、元ファイルの扱いと既存の写真も変換するかを選べます。
 設定画面は、スタートメニューの「Optimize Image Folder」から開けます。コマンド (`status`、`restore` など) は PATH に追加されます。
 

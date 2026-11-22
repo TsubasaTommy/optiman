@@ -78,7 +78,15 @@ fn lossless_formats_decode_to_identical_pixels() {
     for name in ["alpha.png", "rgb16.png", "gray.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"] {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
-        let source = platform::image::decode(&fs::read(&src).unwrap()).unwrap();
+        let source = match platform::image::decode(&fs::read(&src).unwrap()) {
+            Ok(s) => s,
+            // Windows without the WebP Image Extension (e.g. Windows Server CI) has no WebP codec.
+            Err(jxl::EncodeError::Unsupported(e)) if cfg!(windows) && name.ends_with(".webp") => {
+                eprintln!("skipping {name}: {e}");
+                continue;
+            }
+            Err(e) => panic!("{name}: {e:?}"),
+        };
         let out = converted(convert_file(&ctx(OriginalPolicy::Keep), &src), name);
         // convert_file already verified; check again independently here.
         jxl::verify_lossless(&fs::read(&out).unwrap(), &source).unwrap_or_else(|e| panic!("{name}: {e}"));

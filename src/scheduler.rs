@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::LockUnpoisoned;
 use crate::convert::{ConvertCtx, Fingerprint, Outcome, convert_guarded};
 use crate::event::Msg;
 use crate::platform::events::Notifier;
@@ -155,8 +156,7 @@ impl WorkerProc {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
         }
         let mut child = cmd.spawn()?;
         let stdin = child.stdin.take();
@@ -209,7 +209,7 @@ impl Pool {
     }
 
     pub fn submit(&self, path: PathBuf) {
-        let mut s = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.shared.lock_unpoisoned();
         if s.stopping {
             return;
         }
@@ -231,23 +231,23 @@ impl Pool {
             .stack_size(WORKER_STACK)
             .spawn(move || pool_thread(&shared, &ctx, spec.as_ref(), &tx));
         if spawned.is_err() {
-            self.shared.lock().unwrap_or_else(|e| e.into_inner()).active -= 1;
+            self.shared.lock_unpoisoned().active -= 1;
             crate::error!("変換スレッドを作成できませんでした");
         }
     }
 
     pub fn is_idle(&self) -> bool {
-        let s = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let s = self.shared.lock_unpoisoned();
         s.active == 0 && s.queue.is_empty()
     }
 
     pub fn active(&self) -> usize {
-        self.shared.lock().unwrap_or_else(|e| e.into_inner()).active
+        self.shared.lock_unpoisoned().active
     }
 
     /// Drop queued jobs; running workers finish their current file and exit.
     pub fn stop(&self) -> Vec<PathBuf> {
-        let mut s = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.shared.lock_unpoisoned();
         s.stopping = true;
         s.queue.drain(..).collect()
     }
@@ -262,7 +262,7 @@ fn pool_thread(shared: &Mutex<PoolShared>, ctx: &ConvertCtx, spec: Option<&Worke
     let mut worker: Option<WorkerProc> = None;
     loop {
         let job = {
-            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            let mut s = shared.lock_unpoisoned();
             match s.queue.pop_front() {
                 Some(job) if !s.stopping => job,
                 _ => {

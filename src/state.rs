@@ -9,7 +9,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::config::write_atomic;
-use crate::convert::Fingerprint;
+use crate::convert::{Fingerprint, Outcome};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkipEntry {
@@ -28,6 +28,8 @@ pub struct State {
     pub last_idle_unix: Option<u64>,
     /// Files skipped on purpose, keyed by path. Re-tried automatically if the file changes.
     pub skipped: BTreeMap<String, SkipEntry>,
+    /// Roots whose existing photos were all processed (`scan_existing`); later runs only catch up.
+    pub scanned_roots: Vec<String>,
 }
 
 pub fn mtime_ns(t: SystemTime) -> i128 {
@@ -56,6 +58,13 @@ impl State {
         self.skipped
             .get(&path.to_string_lossy().into_owned())
             .is_some_and(|e| Fingerprint { size: e.size, mtime_ns: e.mtime_ns } == fp)
+    }
+
+    /// Remembers a skip or a permanent failure, so the file is retried only once it changes.
+    pub fn record(&mut self, path: &Path, outcome: &Outcome) {
+        if let Some((fp, reason)) = outcome.remember() {
+            self.record_skip(path, fp, reason);
+        }
     }
 
     pub fn record_skip(&mut self, path: &Path, fp: Fingerprint, reason: &str) {

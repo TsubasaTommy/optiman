@@ -101,7 +101,7 @@ fn pipe_name(config: &Path) -> Vec<u16> {
         .to_lowercase()
         .bytes()
         .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
-    wide(OsString::from(format!(r"\\.\pipe\{APP_NAME}-{session}-{hash:016x}")).as_os_str())
+    wide(format!(r"\\.\pipe\{APP_NAME}-{session}-{hash:016x}"))
 }
 
 impl EventLoop {
@@ -118,7 +118,7 @@ impl EventLoop {
             bail!("監視するフォルダがありません");
         }
         for root in roots {
-            let w = wide(root.as_os_str());
+            let w = wide(root);
             let handle = unsafe {
                 CreateFileW(
                     PCWSTR(w.as_ptr()),

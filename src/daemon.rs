@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 
+use crate::LockUnpoisoned;
 use crate::config::Config;
 use crate::convert::{ConvertCtx, Fingerprint, Outcome};
 use crate::event::{Msg, Wait};
@@ -97,6 +98,10 @@ struct Daemon {
     catchup_since: SystemTime,
     latest_event_id: Option<u64>,
     history_done: bool,
+    /// Skip entries of deleted files were dropped during this run.
+    pruned: bool,
+    /// Roots fully scanned in this run, recorded as done once everything is processed.
+    full_scans: Vec<String>,
     busy_since_idle: bool,
     converted_since_idle: usize,
     opts: Options,
@@ -104,7 +109,7 @@ struct Daemon {
 
 pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     let state_path = state_path_for(config_path);
-    let state = State::load(&state_path);
+    let mut state = State::load(&state_path);
     let roots = resolve_roots(&cfg);
     if roots.is_empty() {
         bail!(
@@ -114,14 +119,12 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     }
     let filter = Filter::new(&cfg);
     info!(
-        "起動 v{} (libjxl {}) / 監視: {} / 除外: {} / 圧縮の強さ: {} / 元ファイル: {} / 既存ファイル: {}{}",
+        "起動 v{} (libjxl {}) / 監視: {} / 除外: {} / {}{}",
         crate::VERSION,
         crate::jxl::libjxl_version(),
         roots.iter().map(|r| r.display().to_string()).collect::<Vec<_>>().join(", "),
         filter.excluded_dirs().len(),
-        cfg.effort,
-        cfg.original.describe(),
-        if cfg.scan_existing { "変換する" } else { "新規のみ" },
+        crate::app::summary(&cfg),
         if opts.exit_when_idle.is_some() { " / オンデマンド起動" } else { "" },
     );
 
@@ -131,8 +134,12 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     if opts.exit_when_idle.is_some() {
         ev.listen_launch_events();
     }
-    // Replay FSEvents history (macOS) instead of rescanning when only new files matter.
-    let since = if cfg.scan_existing { None } else { state.last_event_id };
+    // Replay FSEvents history (macOS) instead of rescanning; a root that still needs its full
+    // scan (`scan_existing`) is scanned below regardless.
+    if !cfg.scan_existing {
+        state.scanned_roots.clear(); // turning scan_existing on again scans everything once more
+    }
+    let since = state.last_event_id;
     ev.watch(&roots, since, &watcher_exclusions(&roots, &filter))?;
     let latest_event_id = since.or_else(events::current_event_id);
 
@@ -158,15 +165,23 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
         catchup_since,
         latest_event_id,
         history_done: since.is_none(),
+        pruned: false,
+        full_scans: Vec::new(),
         busy_since_idle: true,
         converted_since_idle: 0,
         opts,
     };
 
-    // Startup catch-up. With FSEvents history available nothing needs scanning.
-    if d.scan_existing || (since.is_none() && (had_previous_run || opts.exit_when_idle.is_some())) {
-        for root in d.roots.clone() {
-            d.rescan(&root);
+    // Startup: the first full scan of a root (scan_existing), otherwise catch up on what arrived
+    // while we were not running. With FSEvents history available nothing needs scanning.
+    let catch_up = since.is_none() && (had_previous_run || opts.exit_when_idle.is_some());
+    for root in d.roots.clone() {
+        let key = root.to_string_lossy().into_owned();
+        if d.scan_existing && !d.state.lock_unpoisoned().scanned_roots.contains(&key) {
+            d.rescan(&root, true);
+            d.full_scans.push(key);
+        } else if catch_up {
+            d.rescan(&root, false);
         }
     }
 
@@ -181,9 +196,11 @@ impl Daemon {
         self.roots.iter().find(|r| path.starts_with(r))
     }
 
-    fn rescan(&mut self, dir: &Path) {
+    /// Queues the photos below `dir`: all of them (`full`), or those that arrived since the last
+    /// time the agent was idle.
+    fn rescan(&mut self, dir: &Path, full: bool) {
         let Some(root) = self.root_of(dir).cloned() else { return };
-        let threshold = (!self.scan_existing).then_some(self.catchup_since);
+        let threshold = (!full).then_some(self.catchup_since);
         let now = Instant::now();
         let mut found = Vec::new();
         walk(&root, dir, &self.filter, &mut |p| found.push(p));
@@ -214,11 +231,11 @@ impl Daemon {
             Msg::Rescan(dir) => {
                 self.busy_since_idle = true;
                 warn!("イベントの取りこぼしの可能性があるため再スキャン: {}", dir.display());
-                self.rescan(&dir);
+                self.rescan(&dir, self.scan_existing);
             }
             Msg::NewDir(dir) => {
                 self.busy_since_idle = true;
-                self.rescan(&dir);
+                self.rescan(&dir, self.scan_existing);
             }
             Msg::EventId(id) => {
                 self.busy_since_idle = true;
@@ -228,16 +245,7 @@ impl Daemon {
             Msg::Wake => self.busy_since_idle = true,
             Msg::JobFinished(path, outcome) => {
                 self.sched.finished(&path);
-                if let Some(line) = outcome.describe(&path) {
-                    match outcome {
-                        Outcome::Converted { note: None, .. } | Outcome::AlreadyDone(_) => info!("{line}"),
-                        Outcome::Failed { .. } => error!("{line}"),
-                        _ => warn!("{line}"),
-                    }
-                }
-                if let Some((fp, reason)) = outcome.remember() {
-                    self.state.lock().unwrap_or_else(|e| e.into_inner()).record_skip(&path, fp, reason);
-                }
+                self.finish_job(&path, &outcome);
                 match outcome {
                     Outcome::Converted { .. } => self.converted_since_idle += 1,
                     Outcome::Requeue(_) => {
@@ -254,6 +262,18 @@ impl Daemon {
             }
         }
         true
+    }
+
+    /// Logs a finished file and remembers it if it must not be retried until it changes.
+    fn finish_job(&self, path: &Path, outcome: &Outcome) {
+        if let Some(line) = outcome.describe(path) {
+            match outcome {
+                Outcome::Converted { note: None, .. } | Outcome::AlreadyDone(_) => info!("{line}"),
+                Outcome::Failed { .. } => error!("{line}"),
+                _ => warn!("{line}"),
+            }
+        }
+        self.state.lock_unpoisoned().record(path, outcome);
     }
 
     fn is_idle(&self) -> bool {
@@ -302,7 +322,7 @@ impl Daemon {
             }
             for (path, fp) in self.sched.take_ready(Instant::now(), &probe) {
                 // Files skipped earlier are retried only after they change.
-                if self.state.lock().unwrap_or_else(|e| e.into_inner()).is_skipped(&path, fp) {
+                if self.state.lock_unpoisoned().is_skipped(&path, fp) {
                     self.sched.finished(&path);
                 } else {
                     self.pool.submit(path);
@@ -315,12 +335,22 @@ impl Daemon {
         self.busy_since_idle = false;
         self.catchup_since = SystemTime::now().checked_sub(CATCHUP_MARGIN).unwrap_or(UNIX_EPOCH);
         {
-            let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut st = self.state.lock_unpoisoned();
             st.last_idle_unix = Some(now_unix());
             if self.latest_event_id.is_some() {
                 st.last_event_id = self.latest_event_id;
             }
-            st.prune_missing();
+            // Everything a full scan queued has been processed now.
+            for root in self.full_scans.drain(..) {
+                if !st.scanned_roots.contains(&root) {
+                    st.scanned_roots.push(root);
+                }
+            }
+            // Pruning stats every skipped file, so do it once per run.
+            if !self.pruned {
+                st.prune_missing();
+                self.pruned = true;
+            }
             if let Err(e) = st.save(&self.state_path) {
                 warn!("状態を保存できません: {e:#}");
             }
@@ -339,16 +369,12 @@ impl Daemon {
         }
         while self.pool.active() > 0 {
             match ev.wait(Some(Duration::from_secs(600))) {
-                Wait::Msg(Msg::JobFinished(path, outcome)) => {
-                    if let Some(line) = outcome.describe(&path) {
-                        info!("{line}");
-                    }
-                }
+                Wait::Msg(Msg::JobFinished(path, outcome)) => self.finish_job(&path, &outcome),
                 Wait::Msg(_) => {}
                 Wait::Timeout => break,
             }
         }
-        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let st = self.state.lock_unpoisoned();
         if let Err(e) = st.save(&self.state_path) {
             warn!("状態を保存できません: {e:#}");
         }

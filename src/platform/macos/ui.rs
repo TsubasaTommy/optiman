@@ -19,7 +19,7 @@ use objc2_foundation::{
     NSDictionary, NSInteger, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
 
-use crate::app::{self, Settings};
+use crate::app::{self, Settings, ui_text as text};
 use crate::config::{Config, EFFORT_RANGE, Quality};
 
 const WIDTH: f64 = 560.0;
@@ -91,7 +91,7 @@ define_class!(
             let Some(&q) = usize::try_from(sender.tag()).ok().and_then(|i| Quality::ALL.get(i)) else { return };
             self.ivars().quality.set(q);
             if let Some(note) = self.ivars().quality_note.get() {
-                note.setStringValue(&NSString::from_str(&quality_note(q)));
+                note.setStringValue(&NSString::from_str(q.describe()));
             }
         }
 
@@ -125,10 +125,10 @@ define_class!(
             };
             match app::save_settings(&self.ivars().config_path, &settings) {
                 Ok(_) => {
-                    self.alert("保存しました", "設定を反映しました。フォルダに写真が追加されると自動で JPEG XL に変換されます。");
+                    self.alert(text::SAVED, text::SAVED_DETAIL);
                     NSApplication::sharedApplication(self.mtm()).terminate(None);
                 }
-                Err(e) => self.alert("保存できませんでした", &format!("{e:#}")),
+                Err(e) => self.alert(text::SAVE_FAILED, &format!("{e:#}")),
             }
         }
 
@@ -275,16 +275,12 @@ impl Controller {
             )
         };
         unsafe { window.setReleasedWhenClosed(false) };
-        window.setTitle(&NSString::from_str("Optiman の設定"));
+        window.setTitle(&NSString::from_str(text::TITLE));
         let content = window.contentView().expect("content view");
 
-        self.label(
-            "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。",
-            frame(20.0, 16.0, 520.0, 52.0),
-            &content,
-        );
+        self.label(text::INTRO, frame(20.0, 16.0, 520.0, 52.0), &content);
 
-        self.label("圧縮の強さ", frame(20.0, 84.0, 110.0, 20.0), &content);
+        self.label(text::EFFORT, frame(20.0, 84.0, 110.0, 20.0), &content);
         let target: &AnyObject = self.as_ref();
         let slider = unsafe {
             NSSlider::sliderWithValue_minValue_maxValue_target_action(
@@ -303,13 +299,9 @@ impl Controller {
         let effort_label =
             self.label(&app::effort_label(self.ivars().effort.get()), frame(440.0, 84.0, 110.0, 20.0), &content);
         let _ = self.ivars().effort_label.set(effort_label);
-        self.label(
-            "速い ← 時間をかけるほど小さくなります (画質は同じ) → 小さい",
-            frame(130.0, 110.0, 400.0, 18.0),
-            &content,
-        );
+        self.label(text::EFFORT_HINT, frame(130.0, 110.0, 400.0, 18.0), &content);
 
-        self.label("画質", frame(20.0, 146.0, 110.0, 20.0), &content);
+        self.label(text::QUALITY, frame(20.0, 146.0, 110.0, 20.0), &content);
         // Radio buttons that share a superview and an action form one group.
         let widths = [150.0, 70.0, 70.0, 70.0];
         let mut x = 130.0;
@@ -332,27 +324,27 @@ impl Controller {
             content.addSubview(&radio);
             x += w + 10.0;
         }
-        let note = self.label(&quality_note(self.ivars().quality.get()), frame(130.0, 172.0, 410.0, 36.0), &content);
+        let note = self.label(self.ivars().quality.get().describe(), frame(130.0, 172.0, 410.0, 36.0), &content);
         let _ = self.ivars().quality_note.set(note);
 
-        self.label("変換するフォルダ (サブフォルダも対象)", frame(20.0, 224.0, 400.0, 20.0), &content);
+        self.label(text::INCLUDE, frame(20.0, 224.0, 400.0, 20.0), &content);
         let include = self.folder_list(246.0, &content);
         let _ = self.ivars().include_table.set(include);
-        self.button("追加…", sel!(addInclude:), frame(440.0, 246.0, 100.0, 30.0), &content);
-        self.button("削除", sel!(removeInclude:), frame(440.0, 280.0, 100.0, 30.0), &content);
+        self.button(text::ADD, sel!(addInclude:), frame(440.0, 246.0, 100.0, 30.0), &content);
+        self.button(text::REMOVE, sel!(removeInclude:), frame(440.0, 280.0, 100.0, 30.0), &content);
 
-        self.label("除外するフォルダ (この中は変換しません)", frame(20.0, 372.0, 400.0, 20.0), &content);
+        self.label(text::EXCLUDE, frame(20.0, 372.0, 400.0, 20.0), &content);
         let exclude = self.folder_list(394.0, &content);
         let _ = self.ivars().exclude_table.set(exclude);
-        self.button("追加…", sel!(addExclude:), frame(440.0, 394.0, 100.0, 30.0), &content);
-        self.button("削除", sel!(removeExclude:), frame(440.0, 428.0, 100.0, 30.0), &content);
+        self.button(text::ADD, sel!(addExclude:), frame(440.0, 394.0, 100.0, 30.0), &content);
+        self.button(text::REMOVE, sel!(removeExclude:), frame(440.0, 428.0, 100.0, 30.0), &content);
 
         if let Some(hint) = super::image::viewer_hint() {
             self.label(&hint, frame(20.0, 520.0, 520.0, 36.0), &content);
         }
 
-        self.button("キャンセル", sel!(cancel:), frame(330.0, 574.0, 100.0, 32.0), &content);
-        let save = self.button("保存", sel!(save:), frame(440.0, 574.0, 100.0, 32.0), &content);
+        self.button(text::CANCEL, sel!(cancel:), frame(330.0, 574.0, 100.0, 32.0), &content);
+        let save = self.button(text::SAVE, sel!(save:), frame(440.0, 574.0, 100.0, 32.0), &content);
         save.setKeyEquivalent(&NSString::from_str("\r"));
 
         window.center();
@@ -371,12 +363,6 @@ impl Controller {
         }
         let _ = self.ivars().window.set(window);
     }
-}
-
-/// The line under the quality choices: what the selected level means. (That JPEG is always
-/// lossless is said in the description at the top of the window.)
-fn quality_note(q: Quality) -> String {
-    q.describe().to_string()
 }
 
 /// Renders the window content to a PNG (layout checks without screen-recording permission).

@@ -11,25 +11,21 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use super::paths::home_dir;
+use crate::platform::AgentSpec;
+use crate::{APP_NAME, DISPLAY_NAME};
 
 pub const LABEL: &str = "io.github.tsubasatommy.optiman";
-pub const APP_NAME: &str = crate::DISPLAY_NAME;
 const BUNDLE_ID: &str = "io.github.tsubasatommy.optiman.settings";
-
-/// What the agent needs to know to be registered.
-pub struct AgentSpec<'a> {
-    pub exe: &'a Path,
-    pub config: &'a Path,
-    pub log_dir: &'a Path,
-    pub folders: &'a [PathBuf],
-}
+/// launchd's own output for the agent, next to our log (removed by `uninstall --purge`).
+const LAUNCHD_LOG: &str = "launchd.log";
+pub const LOG_FILES: &[&str] = &[LAUNCHD_LOG];
 
 pub fn plist_path() -> PathBuf {
     home_dir().join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
 }
 
 pub fn app_bundle_path() -> PathBuf {
-    home_dir().join("Applications").join(format!("{APP_NAME}.app"))
+    home_dir().join("Applications").join(format!("{DISPLAY_NAME}.app"))
 }
 
 fn domain() -> String {
@@ -67,7 +63,7 @@ fn xml_escape(s: &str) -> String {
 fn plist(spec: &AgentSpec<'_>) -> String {
     let exe = xml_escape(&spec.exe.to_string_lossy());
     let config = xml_escape(&spec.config.to_string_lossy());
-    let log = xml_escape(&spec.log_dir.join("launchd.log").to_string_lossy());
+    let log = xml_escape(&spec.log_dir.join(LAUNCHD_LOG).to_string_lossy());
     let events: String = spec
         .folders
         .iter()
@@ -200,13 +196,13 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>optiman</string>
+	<string>{APP_NAME}</string>
 	<key>CFBundleIdentifier</key>
 	<string>{BUNDLE_ID}</string>
 	<key>CFBundleName</key>
-	<string>{APP_NAME}</string>
+	<string>{DISPLAY_NAME}</string>
 	<key>CFBundleDisplayName</key>
-	<string>{APP_NAME}</string>
+	<string>{DISPLAY_NAME}</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -221,7 +217,7 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
         crate::VERSION
     );
     fs::write(app.join("Contents/Info.plist"), info)?;
-    let link = macos.join("optiman");
+    let link = macos.join(APP_NAME);
     let _ = fs::remove_file(&link);
     symlink(exe, &link).with_context(|| format!("リンクを作成できません: {}", link.display()))?;
     Ok(())

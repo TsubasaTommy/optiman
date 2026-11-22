@@ -2,22 +2,17 @@
 
 use std::path::{Path, PathBuf};
 
-use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{
     FOLDERID_LocalAppData, FOLDERID_Pictures, FOLDERID_Profile, FOLDERID_RoamingAppData, KF_FLAG_DEFAULT,
     SHGetKnownFolderPath,
 };
 use windows::core::GUID;
 
+use super::take_co_string;
 use crate::APP_NAME;
 
 fn known(id: &GUID) -> Option<PathBuf> {
-    unsafe {
-        let p = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok()?;
-        let s = p.to_string().ok();
-        CoTaskMemFree(Some(p.0 as *const _));
-        s.map(PathBuf::from)
-    }
+    unsafe { take_co_string(SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok()?) }.map(PathBuf::from)
 }
 
 pub fn home_dir() -> PathBuf {

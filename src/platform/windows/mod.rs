@@ -12,7 +12,11 @@ pub mod ui;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
-use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::Com::{
+    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoTaskMemFree, CoUninitialize,
+};
+use windows::Win32::System::Registry::{HKEY, RRF_RT_REG_SZ, RegGetValueW};
+use windows::core::{PCWSTR, PWSTR};
 
 /// COM for the current thread (WIC, IFileOperation, dialogs); uninitialised when the thread ends.
 struct ComGuard {
@@ -38,7 +42,33 @@ pub(crate) fn ensure_com() {
     COM.with(|_| ());
 }
 
+/// A REG_SZ registry value, if present.
+pub(crate) fn reg_string(root: HKEY, subkey: PCWSTR, value: PCWSTR) -> Option<String> {
+    let mut size = 0u32;
+    unsafe {
+        RegGetValueW(root, subkey, value, RRF_RT_REG_SZ, None, None, Some(&mut size)).ok().ok()?;
+        let mut buf = vec![0u16; (size as usize).div_ceil(2)];
+        RegGetValueW(root, subkey, value, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size))
+            .ok()
+            .ok()?;
+        let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        Some(String::from_utf16_lossy(&buf[..end]))
+    }
+}
+
+/// Converts and frees a string the callee allocated with `CoTaskMemAlloc`.
+///
+/// # Safety
+/// `p` must come from a Shell/COM API that transfers ownership of the string.
+pub(crate) unsafe fn take_co_string(p: PWSTR) -> Option<String> {
+    unsafe {
+        let s = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const _));
+        s
+    }
+}
+
 /// NUL-terminated UTF-16 for Win32 calls.
-pub(crate) fn wide(s: &OsStr) -> Vec<u16> {
-    s.encode_wide().chain(std::iter::once(0)).collect()
+pub(crate) fn wide(s: impl AsRef<OsStr>) -> Vec<u16> {
+    s.as_ref().encode_wide().chain(std::iter::once(0)).collect()
 }

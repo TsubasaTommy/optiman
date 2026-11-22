@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::LockUnpoisoned;
+
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
@@ -39,17 +41,17 @@ pub fn init_file(path: PathBuf) -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
-    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink::File(path, file));
+    *SINK.lock_unpoisoned() = Some(Sink::File(path, file));
     Ok(())
 }
 
 pub fn init_stderr() {
-    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(Sink::Stderr);
+    *SINK.lock_unpoisoned() = Some(Sink::Stderr);
 }
 
 pub fn log(level: Level, args: fmt::Arguments<'_>) {
     let line = format!("{} {} {}\n", timestamp(), level.as_str(), args);
-    let mut guard = SINK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = SINK.lock_unpoisoned();
     match guard.as_mut() {
         None | Some(Sink::Stderr) => eprint!("{line}"),
         Some(Sink::File(path, file)) => {

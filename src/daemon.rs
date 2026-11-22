@@ -28,6 +28,8 @@ use crate::{error, info, warn};
 
 /// Slack applied to the catch-up timestamp threshold (clock granularity, slow copies).
 const CATCHUP_MARGIN: Duration = Duration::from_secs(300);
+/// How often skip entries of deleted files are dropped.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Options {
@@ -98,10 +100,8 @@ struct Daemon {
     catchup_since: SystemTime,
     latest_event_id: Option<u64>,
     history_done: bool,
-    /// Skip entries of deleted files were dropped during this run.
-    pruned: bool,
-    /// Roots fully scanned in this run, recorded as done once everything is processed.
-    full_scans: Vec<String>,
+    /// Skip entries of deleted files were last dropped at this time.
+    pruned_at: Option<Instant>,
     busy_since_idle: bool,
     converted_since_idle: usize,
     opts: Options,
@@ -109,7 +109,7 @@ struct Daemon {
 
 pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     let state_path = state_path_for(config_path);
-    let mut state = State::load(&state_path);
+    let state = State::load(&state_path);
     let roots = resolve_roots(&cfg);
     if roots.is_empty() {
         bail!(
@@ -134,12 +134,8 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
     if opts.exit_when_idle.is_some() {
         ev.listen_launch_events();
     }
-    // Replay FSEvents history (macOS) instead of rescanning; a root that still needs its full
-    // scan (`scan_existing`) is scanned below regardless.
-    if !cfg.scan_existing {
-        state.scanned_roots.clear(); // turning scan_existing on again scans everything once more
-    }
-    let since = state.last_event_id;
+    // Replay FSEvents history (macOS) instead of rescanning when only new files matter.
+    let since = if cfg.scan_existing { None } else { state.last_event_id };
     ev.watch(&roots, since, &watcher_exclusions(&roots, &filter))?;
     let latest_event_id = since.or_else(events::current_event_id);
 
@@ -165,23 +161,16 @@ pub fn run(cfg: Config, config_path: &Path, opts: Options) -> Result<()> {
         catchup_since,
         latest_event_id,
         history_done: since.is_none(),
-        pruned: false,
-        full_scans: Vec::new(),
+        pruned_at: None,
         busy_since_idle: true,
         converted_since_idle: 0,
         opts,
     };
 
-    // Startup: the first full scan of a root (scan_existing), otherwise catch up on what arrived
-    // while we were not running. With FSEvents history available nothing needs scanning.
-    let catch_up = since.is_none() && (had_previous_run || opts.exit_when_idle.is_some());
-    for root in d.roots.clone() {
-        let key = root.to_string_lossy().into_owned();
-        if d.scan_existing && !d.state.lock_unpoisoned().scanned_roots.contains(&key) {
-            d.rescan(&root, true);
-            d.full_scans.push(key);
-        } else if catch_up {
-            d.rescan(&root, false);
+    // Startup catch-up. With FSEvents history available nothing needs scanning.
+    if d.scan_existing || (since.is_none() && (had_previous_run || opts.exit_when_idle.is_some())) {
+        for root in d.roots.clone() {
+            d.rescan(&root);
         }
     }
 
@@ -196,11 +185,11 @@ impl Daemon {
         self.roots.iter().find(|r| path.starts_with(r))
     }
 
-    /// Queues the photos below `dir`: all of them (`full`), or those that arrived since the last
-    /// time the agent was idle.
-    fn rescan(&mut self, dir: &Path, full: bool) {
+    /// Queues the photos below `dir`: all of them (`scan_existing`), or those that arrived since
+    /// the last time the agent was idle.
+    fn rescan(&mut self, dir: &Path) {
         let Some(root) = self.root_of(dir).cloned() else { return };
-        let threshold = (!full).then_some(self.catchup_since);
+        let threshold = (!self.scan_existing).then_some(self.catchup_since);
         let now = Instant::now();
         let mut found = Vec::new();
         walk(&root, dir, &self.filter, &mut |p, md| found.push((p, md)));
@@ -230,11 +219,11 @@ impl Daemon {
             Msg::Rescan(dir) => {
                 self.busy_since_idle = true;
                 warn!("イベントの取りこぼしの可能性があるため再スキャン: {}", dir.display());
-                self.rescan(&dir, self.scan_existing);
+                self.rescan(&dir);
             }
             Msg::NewDir(dir) => {
                 self.busy_since_idle = true;
-                self.rescan(&dir, self.scan_existing);
+                self.rescan(&dir);
             }
             Msg::EventId(id) => {
                 self.busy_since_idle = true;
@@ -339,16 +328,11 @@ impl Daemon {
             if self.latest_event_id.is_some() {
                 st.last_event_id = self.latest_event_id;
             }
-            // Everything a full scan queued has been processed now.
-            for root in self.full_scans.drain(..) {
-                if !st.scanned_roots.contains(&root) {
-                    st.scanned_roots.push(root);
-                }
-            }
-            // Pruning stats every skipped file, so do it once per run.
-            if !self.pruned {
+            // Pruning stats every skipped file (thousands with an iPhone's HEICs), so not on
+            // every idle; the Windows agent runs for the whole session, so not just once either.
+            if self.pruned_at.is_none_or(|t| t.elapsed() >= PRUNE_INTERVAL) {
                 st.prune_missing();
-                self.pruned = true;
+                self.pruned_at = Some(Instant::now());
             }
             if let Err(e) = st.save(&self.state_path) {
                 warn!("状態を保存できません: {e:#}");

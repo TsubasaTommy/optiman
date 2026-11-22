@@ -165,6 +165,8 @@ pub struct RestoreArgs {
     pub delete_jxl: bool,
 }
 
+/// Arguments of the hidden worker. Keep them compatible across versions: during an upgrade, a
+/// running agent of the previous version starts workers from the new binary.
 #[derive(Args, Debug)]
 pub struct WorkerArgs {
     #[arg(long)]
@@ -173,10 +175,16 @@ pub struct WorkerArgs {
     pub threads: usize,
     #[arg(long, value_enum)]
     pub original: OriginalPolicy,
-    #[arg(long, value_enum)]
-    pub quality: Quality,
+    /// libjxl quality of a lossy level (absent = lossless).
+    #[arg(long, value_parser = parse_worker_quality)]
+    pub quality: Option<Quality>,
     #[arg(long, action = clap::ArgAction::Set)]
     pub skip_if_larger: bool,
+}
+
+fn parse_worker_quality(s: &str) -> Result<Quality, String> {
+    let n = s.parse::<u8>().map_err(|e| e.to_string())?;
+    Quality::ALL.into_iter().find(|q| q.jxl_quality() == Some(n)).ok_or_else(|| format!("未対応の画質: {n}"))
 }
 
 pub fn main() -> i32 {
@@ -205,7 +213,7 @@ pub fn main() -> i32 {
         Command::Worker(args) => {
             let ctx = ConvertCtx {
                 effort: args.effort,
-                quality: args.quality,
+                quality: args.quality.unwrap_or_default(),
                 threads: args.threads.max(1),
                 original: args.original,
                 skip_if_larger: args.skip_if_larger,
@@ -677,6 +685,40 @@ fn collect_jxl(dir: &Path, out: &mut Vec<PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn worker_quality(args: &[&str]) -> Option<Quality> {
+        let base = ["optiman", "worker", "--effort=7", "--threads=2", "--original=delete", "--skip-if-larger=true"];
+        match Cli::try_parse_from(base.iter().chain(args)).unwrap().command {
+            Command::Worker(w) => w.quality,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn worker_reads_the_arguments_of_older_agents() {
+        // v0.4.0 passes nothing for lossless and libjxl's number for the lossy levels.
+        assert_eq!(worker_quality(&[]), None);
+        assert_eq!(worker_quality(&["--quality=80"]), Some(Quality::Medium));
+        assert!(
+            Cli::try_parse_from([
+                "optiman",
+                "worker",
+                "--effort=7",
+                "--threads=2",
+                "--original=keep",
+                "--skip-if-larger=false",
+                "--quality=85"
+            ])
+            .is_err()
+        );
+        for q in Quality::ALL {
+            let ctx = ConvertCtx { quality: q, ..ConvertCtx::new(&Config::default()) };
+            let spec = crate::scheduler::WorkerSpec::for_ctx(&ctx).unwrap();
+            let args: Vec<&str> = spec.args.iter().map(|a| a.to_str().unwrap()).collect();
+            let parsed = Cli::try_parse_from(std::iter::once("optiman").chain(args)).unwrap();
+            assert!(matches!(parsed.command, Command::Worker(w) if w.quality.unwrap_or_default() == q), "{q:?}");
+        }
+    }
 
     #[test]
     fn purge_removes_only_our_files() {

@@ -129,14 +129,17 @@ pub struct WorkerSpec {
 impl WorkerSpec {
     pub fn for_ctx(ctx: &ConvertCtx) -> Option<WorkerSpec> {
         let exe = std::env::current_exe().ok()?;
-        let args = [
+        // The format stays readable by workers of later versions (see `cli::WorkerArgs`).
+        let mut args = vec![
             "worker".to_string(),
             format!("--effort={}", ctx.effort),
             format!("--threads={}", ctx.threads),
             format!("--original={}", ctx.original.as_str()),
-            format!("--quality={}", ctx.quality.as_str()),
             format!("--skip-if-larger={}", ctx.skip_if_larger),
         ];
+        if let Some(q) = ctx.quality.jxl_quality() {
+            args.push(format!("--quality={q}"));
+        }
         Some(WorkerSpec { exe, args: args.into_iter().map(OsString::from).collect() })
     }
 }
@@ -231,8 +234,18 @@ impl Pool {
             .stack_size(WORKER_STACK)
             .spawn(move || pool_thread(&shared, &ctx, spec.as_ref(), &tx));
         if spawned.is_err() {
-            self.shared.lock_unpoisoned().active -= 1;
-            crate::error!("変換スレッドを作成できませんでした");
+            const REASON: &str = "変換スレッドを作成できませんでした";
+            crate::error!("{REASON}");
+            let mut s = self.shared.lock_unpoisoned();
+            s.active -= 1;
+            // No thread is left to take the queued files: report them as failed (not remembered,
+            // so the next change or scan retries them) instead of waiting forever.
+            if s.active == 0 {
+                for job in s.queue.drain(..) {
+                    let _ =
+                        self.tx.send(Msg::JobFinished(job, Outcome::Failed { reason: REASON.into(), remember: None }));
+                }
+            }
         }
     }
 

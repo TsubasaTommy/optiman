@@ -53,8 +53,9 @@ unsafe fn color_info(space: CGColorSpaceRef) -> ColorInfo {
 /// Decodes the first image exactly as stored: original orientation, colour space and bit depth.
 pub fn decode(data: &[u8]) -> Result<SourceImage, EncodeError> {
     unsafe {
-        // ImageIO reads the file bytes in place; `data` outlives every CF object made here.
-        let cfdata = cf_data_borrowed(data);
+        // Copied: CoreGraphics may keep objects derived from the data (e.g. ICC colour spaces)
+        // beyond this call.
+        let cfdata = cf_data(data);
         let src = Cf::from_create(CGImageSourceCreateWithData(cfdata.ptr(), std::ptr::null()))
             .ok_or_else(|| unsupported("画像として読み込めません (未対応の形式)"))?;
         if CGImageSourceGetStatus(src.mut_ptr()) < 0 {
@@ -234,7 +235,7 @@ pub fn encode_png(img: &crate::jxl::Decoded) -> Result<Vec<u8>, String> {
         }
         .or_else(|| Cf::from_create(CGColorSpaceCreateWithName(kCGColorSpaceSRGB)))
         .ok_or("色空間を作成できません")?;
-        let data = cf_data_borrowed(&img.pixels);
+        let data = cf_data(&img.pixels);
         let provider =
             Cf::from_create(CGDataProviderCreateWithCFData(data.ptr())).ok_or("CGDataProvider を作成できません")?;
         let byte_order = if bpc == 16 { BYTE_ORDER_16_LITTLE } else { 0 };

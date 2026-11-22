@@ -42,8 +42,8 @@ const CMAKE_OPTIONS: &[(&str, &str)] = &[
     ("BROTLI_DISABLE_TESTS", "ON"),
 ];
 
-/// Bump to rebuild cached libjxl builds after changing how libjxl is built (other than the
-/// options above, which are hashed directly).
+/// Bump to rebuild cached libjxl builds after a change that neither the options above nor
+/// `libjxl_config` show (both are part of the cache key), e.g. a new version of the cmake crate.
 const BUILD_REVISION: u32 = 1;
 
 /// Application manifest for both executables: common controls v6 (themed settings window),
@@ -107,18 +107,7 @@ fn main() {
         }
     }
 
-    let mut cfg = cmake::Config::new(src);
-    cfg.profile("Release");
-    for (key, value) in CMAKE_OPTIONS {
-        cfg.define(key, value);
-    }
-    if let Ok(n) = std::thread::available_parallelism() {
-        cfg.env("CMAKE_BUILD_PARALLEL_LEVEL", n.get().to_string());
-    }
-    if cfg_msvc() {
-        // The Visual Studio generator builds the files of one project serially unless asked.
-        cfg.cflag("/MP").cxxflag("/MP");
-    }
+    let mut cfg = libjxl_config(src);
     println!("cargo:rerun-if-env-changed=OPTIMAN_LIBJXL_CACHE_DIR");
     let dst = match env::var_os("OPTIMAN_LIBJXL_CACHE_DIR") {
         Some(dir) => cached_build(Path::new(&dir), &mut cfg),
@@ -153,6 +142,24 @@ fn main() {
     }
 }
 
+/// The CMake build of libjxl. This function's source text is part of the cache key, so every
+/// change here rebuilds cached builds.
+fn libjxl_config(src: &Path) -> cmake::Config {
+    let mut cfg = cmake::Config::new(src);
+    cfg.profile("Release");
+    for (key, value) in CMAKE_OPTIONS {
+        cfg.define(key, value);
+    }
+    if let Ok(n) = std::thread::available_parallelism() {
+        cfg.env("CMAKE_BUILD_PARALLEL_LEVEL", n.get().to_string());
+    }
+    if cfg_msvc() {
+        // The Visual Studio generator builds the files of one project serially unless asked.
+        cfg.cflag("/MP").cxxflag("/MP");
+    }
+    cfg
+}
+
 /// Builds libjxl once per target and configuration into a shared directory instead of every
 /// cargo profile's OUT_DIR (`check`, `clippy`, `test` and `--release` would each rebuild it).
 /// The flags the cmake crate passes do not depend on the cargo profile, and the CMake build
@@ -170,15 +177,44 @@ fn cached_build(root: &Path, cfg: &mut cmake::Config) -> PathBuf {
         cfg.out_dir(&dir);
         cfg.build();
         fs::write(&stamp, name.as_bytes()).expect("write the libjxl cache stamp");
+        remove_stale_builds(root, &target, &name);
     }
     dir
 }
 
-/// Everything that changes the libjxl build: the options and build revision, the library
-/// versions, the target and the compiler environment. Edits elsewhere in this script keep the
-/// cached build.
+/// Deletes this target's builds for other keys, so the cache (which CI restores from an older key
+/// and saves under the new one) keeps one build per target. Builds another cargo process holds
+/// are left alone.
+fn remove_stale_builds(root: &Path, target: &str, current: &str) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_key = |k: &str| k.len() == 16 && k.bytes().all(|b| b.is_ascii_hexdigit());
+        let other_build = name != current
+            && name.strip_prefix(target).and_then(|r| r.strip_prefix('-')).is_some_and(is_key)
+            && entry.path().is_dir();
+        if !other_build {
+            continue;
+        }
+        let lock_path = root.join(format!("{name}.lock"));
+        let Ok(lock) = File::create(&lock_path) else { continue };
+        if lock.try_lock().is_ok() {
+            let _ = fs::remove_dir_all(entry.path());
+            drop(lock);
+            let _ = fs::remove_file(lock_path);
+        }
+    }
+}
+
+/// Everything that changes the libjxl build: the options, `libjxl_config` and the build
+/// revision, the library versions, the target and the compiler environment. Edits elsewhere in
+/// this script keep the cached build.
 fn cache_key(target: &str) -> u64 {
-    let mut data = format!("{BUILD_REVISION} {CMAKE_OPTIONS:?} msvc={}", cfg_msvc()).into_bytes();
+    // Without CRs, so a CRLF checkout gives the same key.
+    let script = fs::read_to_string("build.rs").expect("read build.rs").replace('\r', "");
+    let config_fn = script.split("fn libjxl_config").nth(1).and_then(|s| s.split("\n}\n").next());
+    let config_fn = config_fn.expect("libjxl_config in build.rs");
+    let mut data = format!("{BUILD_REVISION} {CMAKE_OPTIONS:?} msvc={} {config_fn}", cfg_msvc()).into_bytes();
     for file in [
         "lib/CMakeLists.txt",
         "third_party/highway/CMakeLists.txt",

@@ -117,9 +117,12 @@ fn lossy_sources_are_not_converted() {
     }
 }
 
+/// Fixtures where lossy clearly beats lossless. The tiny, flat ones (gray.png, rgb16.png) may keep
+/// the exact lossless result instead.
+const LOSSY_EXPECTED: &[&str] = &["alpha.png", "photo.tiff", "photo.bmp", "photo_lossless.webp"];
+
 #[test]
 fn lossy_mode_is_close_to_the_source_and_smaller() {
-    let mut lossy_results = 0;
     for name in LOSSLESS_SOURCES {
         let dir = tempfile::tempdir().unwrap();
         let src = copy_to(dir.path(), name);
@@ -129,16 +132,15 @@ fn lossy_mode_is_close_to_the_source_and_smaller() {
         fs::remove_file(&reference).unwrap();
         let out = converted(convert_file(&ctx(OriginalPolicy::Keep, Quality::High), &src), name);
         let bytes = fs::read(&out).unwrap();
-        // Where lossy saves too little (small, flat images), the exact lossless result is kept.
+        // Where lossy saves too little, the exact lossless result is kept.
         if jxl::verify_lossless(&bytes, &source).is_ok() {
+            assert!(!LOSSY_EXPECTED.contains(name), "{name}: expected a lossy result");
             continue;
         }
         let psnr = jxl::verify_lossy(&bytes, &source).unwrap_or_else(|e| panic!("{name}: {e}"));
         eprintln!("{name}: lossless {lossless_size} B, lossy {} B, PSNR {psnr:.1} dB", bytes.len());
         assert!((bytes.len() as u64) < lossless_size, "{name}: lossy should be smaller than lossless");
-        lossy_results += 1;
     }
-    assert!(lossy_results > 0, "no fixture ended up lossy");
 }
 
 #[test]

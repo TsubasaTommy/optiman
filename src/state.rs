@@ -28,8 +28,6 @@ pub struct State {
     pub last_idle_unix: Option<u64>,
     /// Files skipped on purpose, keyed by path. Re-tried automatically if the file changes.
     pub skipped: BTreeMap<String, SkipEntry>,
-    /// Roots whose existing photos were all processed (`scan_existing`); later runs only catch up.
-    pub scanned_roots: Vec<String>,
 }
 
 pub fn mtime_ns(t: SystemTime) -> i128 {

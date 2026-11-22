@@ -59,7 +59,6 @@ pub const kCFNumberSInt64Type: CFIndex = 4;
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     pub static kCFAllocatorDefault: CFAllocatorRef;
-    pub static kCFAllocatorNull: CFAllocatorRef;
     pub static kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
     pub static kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
     pub static kCFTypeArrayCallBacks: CFArrayCallBacks;
@@ -83,12 +82,6 @@ unsafe extern "C" {
     pub fn CFStringGetCString(s: CFStringRef, buffer: *mut c_char, size: CFIndex, encoding: u32) -> Boolean;
 
     pub fn CFDataCreate(alloc: CFAllocatorRef, bytes: *const u8, length: CFIndex) -> CFDataRef;
-    pub fn CFDataCreateWithBytesNoCopy(
-        alloc: CFAllocatorRef,
-        bytes: *const u8,
-        length: CFIndex,
-        bytes_deallocator: CFAllocatorRef,
-    ) -> CFDataRef;
     pub fn CFDataCreateMutable(alloc: CFAllocatorRef, capacity: CFIndex) -> CFMutableDataRef;
     pub fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
     pub fn CFDataGetLength(data: CFDataRef) -> CFIndex;
@@ -295,22 +288,6 @@ pub fn cf_data(bytes: &[u8]) -> Cf {
     unsafe {
         Cf::from_create(CFDataCreate(kCFAllocatorDefault, bytes.as_ptr(), bytes.len() as CFIndex))
             .expect("CFDataCreate failed")
-    }
-}
-
-/// A CFData that reads `bytes` in place instead of copying them.
-///
-/// # Safety
-/// `bytes` must outlive the returned CFData and every CF object created from it.
-pub unsafe fn cf_data_borrowed(bytes: &[u8]) -> Cf {
-    unsafe {
-        Cf::from_create(CFDataCreateWithBytesNoCopy(
-            kCFAllocatorDefault,
-            bytes.as_ptr(),
-            bytes.len() as CFIndex,
-            kCFAllocatorNull,
-        ))
-        .expect("CFDataCreateWithBytesNoCopy failed")
     }
 }
 

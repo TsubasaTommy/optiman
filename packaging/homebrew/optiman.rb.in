@@ -16,8 +16,6 @@ class Optiman < Formula
     <<~EOS
       Start converting (registers a launchd agent that runs only when a watched folder changes):
         optiman install
-      Coming from optimize-image-folder (the former name)? Run `optiman install` once: it takes
-      over the settings and replaces the old agent.
       Open the settings window (folders and compression strength):
         optiman settings
       Before `brew uninstall`, unregister the agent:

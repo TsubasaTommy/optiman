@@ -15,8 +15,6 @@ use windows::core::{PCWSTR, w};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const VALUE_NAME: PCWSTR = w!("optiman");
-/// The Run entry written up to v0.2.0 (see `crate::migrate`).
-const LEGACY_VALUE_NAME: PCWSTR = w!("optimize-image-folder");
 pub const AGENT_EXE: &str = "optiman-agent.exe";
 
 const DETACHED_PROCESS: u32 = 0x0000_0008;
@@ -79,13 +77,9 @@ fn with_run_key<T>(f: impl FnOnce(HKEY) -> Result<T>) -> Result<T> {
 }
 
 fn registered_command() -> Option<String> {
-    read_run_value(VALUE_NAME)
-}
-
-fn read_run_value(name: PCWSTR) -> Option<String> {
     let mut size = 0u32;
     unsafe {
-        if RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, name, RRF_RT_REG_SZ, None, None, Some(&mut size)).is_err()
+        if RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME, RRF_RT_REG_SZ, None, None, Some(&mut size)).is_err()
             || size == 0
         {
             return None;
@@ -94,7 +88,7 @@ fn read_run_value(name: PCWSTR) -> Option<String> {
         RegGetValueW(
             HKEY_CURRENT_USER,
             RUN_KEY,
-            name,
+            VALUE_NAME,
             RRF_RT_REG_SZ,
             None,
             Some(buf.as_mut_ptr().cast()),
@@ -161,22 +155,6 @@ pub fn uninstall() -> Result<()> {
         }
         Ok(())
     })
-}
-
-/// Stops the agent registered under the former name (up to v0.2.0) and removes its Run entry.
-/// Returns whether one was registered.
-pub fn remove_legacy() -> bool {
-    let Some(cmd) = read_run_value(LEGACY_VALUE_NAME) else {
-        return false;
-    };
-    if let Some((_, config)) = parse_command_line(&cmd) {
-        super::events::request_stop_as(crate::LEGACY_NAME, &config);
-    }
-    let _ = with_run_key(|key| {
-        let _ = unsafe { RegDeleteValueW(key, LEGACY_VALUE_NAME) };
-        Ok(())
-    });
-    true
 }
 
 pub fn describe() -> String {

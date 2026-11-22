@@ -34,12 +34,6 @@ tar -xzf "$tmp/$ASSET" -C "$tmp"
 if [ -x "$DEST/optiman" ]; then
   "$DEST/optiman" stop >/dev/null 2>&1 || true
 fi
-# Up to v0.2.0 the command was called optimize-image-folder. `optiman install` below takes over its
-# settings and launchd agent, so the old binary only needs to stop and go.
-if [ -x "$DEST/optimize-image-folder" ]; then
-  "$DEST/optimize-image-folder" stop >/dev/null 2>&1 || true
-  rm -f "$DEST/optimize-image-folder"
-fi
 install -m 755 "$tmp/optiman" "$DEST/optiman"
 xattr -d com.apple.quarantine "$DEST/optiman" 2>/dev/null || true
 echo "インストールしました: $DEST/optiman"

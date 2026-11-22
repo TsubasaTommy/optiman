@@ -395,8 +395,6 @@ optiman install</code></pre></div>
         <h3>Homebrew を使わない場合</h3>
         <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optiman/install.sh | sh</code></pre></div>
         <p class="small">最新リリースをダウンロードし、SHA256 を確かめてから <code>~/.local/bin</code> に置きます。</p>
-        <h3>以前の名前 (optimize-image-folder) から更新する場合</h3>
-        <p>Homebrew なら <code>brew update</code> と <code>brew upgrade</code> で Optiman に切り替わります。そのあと一度 <code>optiman install</code> を実行すると、設定と自動起動を引き継ぎます。上の curl のコマンドで入れ直した場合も同じように引き継ぎます。</p>
       </div>
 
       <div class="panel" id="p-win" role="tabpanel" aria-labelledby="tab-win" hidden>
@@ -404,7 +402,6 @@ optiman install</code></pre></div>
         <a class="download" href="https://github.com/TsubasaTommy/optiman/releases/latest/download/Optiman-Setup.exe">Setup.exe をダウンロード</a>
         <p>x64 と ARM64 の両方に対応し、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optiman」から開けます。</p>
         <p class="small">インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は <a href="https://github.com/TsubasaTommy/optiman/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。</p>
-        <p class="small">以前の名前 (Optimize Image Folder) で入れている場合も、このインストーラーで上書きすると、設定と自動起動を引き継いで置き換えます。</p>
         <h3>PowerShell から入れる場合</h3>
         <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optiman/install.ps1 | iex</code></pre></div>
         <p class="small">最新の Setup.exe をダウンロードし、SHA256 を確かめてから起動します。</p>

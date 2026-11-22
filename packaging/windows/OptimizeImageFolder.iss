@@ -65,6 +65,8 @@ japanese.InstallingViewer=JPEG XL Image Extension をインストールしてい
 english.InstallingViewer=Installing the JPEG XL Image Extension...
 japanese.Registering=変換の監視を登録しています…
 english.Registering=Registering the folder watcher...
+japanese.RegisterFailed=変換の監視を登録できませんでした。このあと開く設定画面で、変換するフォルダを指定して「保存」を押してください。
+english.RegisterFailed=The folder watcher could not be registered. Choose the folders to convert in the settings window that opens next and press Save.
 japanese.OpenSettings=設定画面を開く (変換するフォルダと圧縮の強さ)
 english.OpenSettings=Open the settings (folders and compression strength)
 japanese.SettingsComment=変換するフォルダと圧縮の強さの設定
@@ -114,7 +116,6 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#Agent}"; Parameters: "--settings"; Comment: "{cm:SettingsComment}"
 
 [Run]
-Filename: "{app}\{#Cli}"; Parameters: "{code:InstallParams}"; StatusMsg: "{cm:Registering}"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#Cli}"; Parameters: "{code:ViewerParams}"; StatusMsg: "{cm:InstallingViewer}"; Tasks: jxlviewer; Flags: runhidden waituntilterminated
 Filename: "{app}\{#Agent}"; Parameters: "--settings"; Description: "{cm:OpenSettings}"; Flags: postinstall nowait skipifsilent
 
@@ -230,6 +231,23 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
     RemovePath(ExpandConstant('{app}'));
+end;
+
+{ Registers and starts the agent (also on upgrades, so a new version takes over). }
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+  WizardForm.StatusLabel.Caption := CustomMessage('Registering');
+  if not Exec(ExpandConstant('{app}\{#Cli}'), InstallParams(''), '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    or (ResultCode <> 0) then
+  begin
+    Log(Format('Registering the agent failed (exit code %d)', [ResultCode]));
+    if not WizardSilent then
+      MsgBox(CustomMessage('RegisterFailed'), mbError, MB_OK);
+  end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);

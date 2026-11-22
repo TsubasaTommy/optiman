@@ -313,7 +313,12 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
         let answer = prompt.ask("変換するフォルダ", &default.to_string_lossy());
         vec![config::expand_tilde(&answer)]
     };
+    let pictures = paths::pictures_dir();
     for f in &folders {
+        // The OS's standard Pictures folder can be missing on a fresh profile; create it.
+        if *f == pictures && !f.exists() {
+            fs::create_dir_all(f).with_context(|| format!("フォルダを作成できません: {}", f.display()))?;
+        }
         if !args.force {
             config::check_folder_safe(f)?;
         } else if !f.is_dir() {

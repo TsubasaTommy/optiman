@@ -77,6 +77,11 @@ pub fn is_registered() -> bool {
     registered_command().is_some()
 }
 
+/// Whether the registered agent is this executable with this config.
+pub fn is_registered_as(exe: &Path, config: &Path) -> bool {
+    registered_command().as_deref().and_then(parse_command_line).is_some_and(|(e, c)| e == exe && c == config)
+}
+
 /// Writes the Run entry and starts the agent if asked (the caller stops a running one first).
 pub fn install(spec: &AgentSpec, start_now: bool) -> Result<()> {
     std::fs::create_dir_all(&spec.log_dir).ok();

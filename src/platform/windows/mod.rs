@@ -7,6 +7,7 @@ pub mod fsutil;
 pub mod image;
 pub mod paths;
 pub mod power;
+pub mod tray;
 pub mod ui;
 pub mod update;
 
@@ -71,6 +72,17 @@ pub(crate) unsafe fn take_co_string(p: PWSTR) -> Option<String> {
         CoTaskMemFree(Some(p.0 as *const _));
         s
     }
+}
+
+/// The resident agent also runs the daily update check and the tray icon, each on a thread that
+/// sleeps or waits for messages.
+pub fn on_agent_start(spec: &crate::platform::AgentSpec) {
+    update::start_checks(spec);
+    tray::start(spec);
+}
+
+pub fn on_agent_exit() {
+    tray::remove();
 }
 
 /// NUL-terminated UTF-16 for Win32 calls.

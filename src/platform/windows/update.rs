@@ -31,7 +31,7 @@ pub fn curl_command() -> Command {
 }
 
 /// Starts the update thread when automatic updates are on and the setup program installed us.
-pub fn on_agent_start(spec: &AgentSpec) {
+pub fn start_checks(spec: &AgentSpec) {
     if !spec.auto_update || !can_install() {
         return;
     }

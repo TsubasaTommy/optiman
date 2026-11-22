@@ -144,6 +144,8 @@ pub struct Config {
     pub exclude: Vec<String>,
     /// Install new releases automatically (checked about once a day).
     pub auto_update: bool,
+    /// An icon in the notification area (Windows) or the menu bar (macOS) that opens the settings.
+    pub tray_icon: bool,
 }
 
 impl Default for Config {
@@ -161,6 +163,7 @@ impl Default for Config {
             extensions: DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect(),
             exclude: Vec::new(),
             auto_update: true,
+            tray_icon: true,
         }
     }
 }
@@ -182,6 +185,7 @@ const HEADER: &str = "\
 # extensions      対象の拡張子 (RAW は指定できません)
 # exclude         除外するフォルダ/ファイル名のパターン (* と ? が使えます)
 # auto_update     新しいバージョンを自動でインストールする (1 日 1 回確認。既定 true)
+# tray_icon       タスクトレイ (macOS ではメニューバー) にアイコンを出す。クリックで設定画面を開く (既定 true)
 
 ";
 

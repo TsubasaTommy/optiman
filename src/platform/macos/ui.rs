@@ -23,7 +23,7 @@ use crate::app::{self, Settings, ui_text as text};
 use crate::config::{Config, EFFORT_RANGE, Quality};
 
 const WIDTH: f64 = 560.0;
-const HEIGHT: f64 = 564.0;
+const HEIGHT: f64 = 582.0;
 
 /// Frame from top-left based coordinates (AppKit's origin is bottom-left).
 fn frame(x: f64, top: f64, w: f64, h: f64) -> NSRect {
@@ -37,6 +37,7 @@ pub struct Ivars {
     effort: Cell<u8>,
     quality: Cell<Quality>,
     auto_update: Cell<bool>,
+    tray_icon: Cell<bool>,
     window: OnceCell<Retained<NSWindow>>,
     include_table: OnceCell<Retained<NSTableView>>,
     exclude_table: OnceCell<Retained<NSTableView>>,
@@ -97,6 +98,11 @@ define_class!(
             self.ivars().auto_update.set(sender.state() == NSControlStateValueOn);
         }
 
+        #[unsafe(method(trayIconChanged:))]
+        fn tray_icon_changed(&self, sender: &NSButton) {
+            self.ivars().tray_icon.set(sender.state() == NSControlStateValueOn);
+        }
+
         #[unsafe(method(addInclude:))]
         fn add_include(&self, _sender: Option<&AnyObject>) {
             self.add_folders(true);
@@ -125,6 +131,7 @@ define_class!(
                 include: self.ivars().include.borrow().clone(),
                 exclude: self.ivars().exclude.borrow().clone(),
                 auto_update: self.ivars().auto_update.get(),
+                tray_icon: self.ivars().tray_icon.get(),
             };
             match app::save_settings(&self.ivars().config_path, &settings) {
                 Ok(_) => {
@@ -152,6 +159,7 @@ impl Controller {
             effort: Cell::new(s.effort),
             quality: Cell::new(s.quality),
             auto_update: Cell::new(s.auto_update),
+            tray_icon: Cell::new(s.tray_icon),
             window: OnceCell::new(),
             include_table: OnceCell::new(),
             exclude_table: OnceCell::new(),
@@ -239,6 +247,21 @@ impl Controller {
         b.setFrame(f);
         content.addSubview(&b);
         b
+    }
+
+    fn checkbox(&self, title: &str, on: bool, action: objc2::runtime::Sel, f: NSRect, content: &NSView) {
+        let target: &AnyObject = self.as_ref();
+        let b = unsafe {
+            NSButton::checkboxWithTitle_target_action(
+                &NSString::from_str(title),
+                Some(target),
+                Some(action),
+                self.mtm(),
+            )
+        };
+        b.setState(if on { NSControlStateValueOn } else { NSControlStateValueOff });
+        b.setFrame(f);
+        content.addSubview(&b);
     }
 
     fn folder_list(&self, top: f64, content: &NSView) -> Retained<NSTableView> {
@@ -343,24 +366,19 @@ impl Controller {
             self.label(&hint, frame(20.0, 460.0, 520.0, 36.0), &content);
         }
 
-        let auto_update = unsafe {
-            NSButton::checkboxWithTitle_target_action(
-                &NSString::from_str(text::AUTO_UPDATE),
-                Some(target),
-                Some(sel!(autoUpdateChanged:)),
-                mtm,
-            )
-        };
-        auto_update.setState(if self.ivars().auto_update.get() {
-            NSControlStateValueOn
-        } else {
-            NSControlStateValueOff
-        });
-        auto_update.setFrame(frame(20.0, 519.0, 280.0, 22.0));
-        content.addSubview(&auto_update);
+        let tray_icon = self.ivars().tray_icon.get();
+        self.checkbox(text::TRAY_ICON, tray_icon, sel!(trayIconChanged:), frame(20.0, 510.0, 300.0, 22.0), &content);
+        let auto_update = self.ivars().auto_update.get();
+        self.checkbox(
+            text::AUTO_UPDATE,
+            auto_update,
+            sel!(autoUpdateChanged:),
+            frame(20.0, 536.0, 300.0, 22.0),
+            &content,
+        );
 
-        self.button(text::CANCEL, sel!(cancel:), frame(330.0, 514.0, 100.0, 32.0), &content);
-        let save = self.button(text::SAVE, sel!(save:), frame(440.0, 514.0, 100.0, 32.0), &content);
+        self.button(text::CANCEL, sel!(cancel:), frame(330.0, 532.0, 100.0, 32.0), &content);
+        let save = self.button(text::SAVE, sel!(save:), frame(440.0, 532.0, 100.0, 32.0), &content);
         save.setKeyEquivalent(&NSString::from_str("\r"));
 
         window.center();

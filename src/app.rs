@@ -75,6 +75,7 @@ pub fn agent_spec(config_path: &Path, cfg: &Config) -> Result<AgentSpec> {
         log_dir: log_path.parent().map(Path::to_path_buf).unwrap_or_else(paths::log_dir),
         folders: resolve_roots(cfg),
         auto_update: cfg.auto_update,
+        tray_icon: cfg.tray_icon,
     })
 }
 
@@ -96,6 +97,7 @@ pub struct Settings {
     pub include: Vec<PathBuf>,
     pub exclude: Vec<PathBuf>,
     pub auto_update: bool,
+    pub tray_icon: bool,
 }
 
 impl Settings {
@@ -106,6 +108,7 @@ impl Settings {
             include: cfg.folder_paths(),
             exclude: cfg.exclude_folder_paths(),
             auto_update: cfg.auto_update,
+            tray_icon: cfg.tray_icon,
         }
     }
 }
@@ -124,6 +127,7 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
     cfg.folders = settings.include.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.exclude_folders = settings.exclude.iter().map(|f| config::contract_tilde(f)).collect();
     cfg.auto_update = settings.auto_update;
+    cfg.tray_icon = settings.tray_icon;
     cfg.save(config_path)?;
     register_agent(config_path, &cfg, true)?;
     Ok(cfg)
@@ -140,6 +144,11 @@ pub mod ui_text {
     pub const INCLUDE: &str = "変換するフォルダ (サブフォルダも対象)";
     pub const EXCLUDE: &str = "除外するフォルダ (この中は変換しません)";
     pub const AUTO_UPDATE: &str = "自動でアップデートする";
+    pub const TRAY_ICON: &str = if cfg!(target_os = "macos") {
+        "メニューバーにアイコンを表示する"
+    } else {
+        "タスクトレイにアイコンを表示する"
+    };
     pub const ADD: &str = "追加…";
     pub const REMOVE: &str = "削除";
     pub const CANCEL: &str = "キャンセル";

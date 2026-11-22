@@ -1,8 +1,8 @@
 //! launchd user agent (`~/Library/LaunchAgents`) that is started **on demand**:
 //! `LaunchEvents` / `com.apple.fsevents.matching` makes launchd launch the agent when anything
 //! below a watched folder changes, so no process of ours exists while nothing happens.
-//! Also installs the settings app bundle (`~/Applications/Optiman.app`) and a second job that
-//! runs the update check once a day (`update --auto`).
+//! Also installs the settings app bundle (`~/Applications/Optiman.app`) and two helper jobs: the
+//! daily update check (`update --auto`) and the menu bar icon (`tray`, started at login).
 
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -39,12 +39,16 @@ fn service() -> String {
     format!("{}/{LABEL}", domain())
 }
 
-fn update_label() -> String {
-    format!("{LABEL}.update")
+/// Helper jobs next to the agent, labelled `<LABEL>.<name>`.
+const UPDATE_JOB: &str = "update";
+const TRAY_JOB: &str = "tray";
+
+fn job_label(name: &str) -> String {
+    format!("{LABEL}.{name}")
 }
 
-pub fn update_plist_path() -> PathBuf {
-    home_dir().join("Library/LaunchAgents").join(format!("{}.plist", update_label()))
+fn job_plist_path(name: &str) -> PathBuf {
+    home_dir().join("Library/LaunchAgents").join(format!("{}.plist", job_label(name)))
 }
 
 /// The binary launchd should run. A Homebrew Cellar path changes on every upgrade, so use the
@@ -148,7 +152,7 @@ pub fn install(spec: &AgentSpec, start_now: bool) -> Result<()> {
     fs::create_dir_all(&spec.log_dir).ok();
     fs::write(&path, plist(spec)).with_context(|| format!("書き込めません: {}", path.display()))?;
     install_app_bundle(&app_bundle_path(), &spec.exe)?;
-    sync_update_job(spec)?;
+    sync_jobs(spec)?;
     let _ = launchctl(&["bootout", &service()]);
     if start_now {
         start()?;
@@ -181,7 +185,8 @@ pub fn stop() -> Result<()> {
 
 pub fn uninstall() -> Result<()> {
     stop()?;
-    remove_update_job()?;
+    sync_job(UPDATE_JOB, None)?;
+    sync_job(TRAY_JOB, None)?;
     let path = plist_path();
     if path.exists() {
         fs::remove_file(&path).with_context(|| format!("削除できません: {}", path.display()))?;
@@ -258,16 +263,52 @@ pub fn refresh(spec: &AgentSpec) -> Result<()> {
     if needs_refresh(&app, &spec.exe) {
         install_app_bundle(&app, &spec.exe)?;
     }
-    sync_update_job(spec)
+    sync_jobs(spec)
 }
 
-/// A job that runs `update --auto` at noon and at login (a sleeping Mac runs a missed one when it
-/// wakes); the command itself skips the check when the last one was recent.
-fn update_plist(spec: &AgentSpec) -> String {
+/// Registers the helper jobs this spec asks for and removes the others.
+fn sync_jobs(spec: &AgentSpec) -> Result<()> {
+    sync_job(UPDATE_JOB, update_plist(spec))?;
+    sync_job(TRAY_JOB, tray_plist(spec))
+}
+
+/// Runs `update --auto` at noon and at login (a sleeping Mac runs a missed one when it wakes);
+/// the command skips the check when the last one was recent. Only Homebrew installs get it.
+fn update_plist(spec: &AgentSpec) -> Option<String> {
+    let keys = "\t<key>StartCalendarInterval</key>
+\t<dict>
+\t\t<key>Hour</key>
+\t\t<integer>12</integer>
+\t\t<key>Minute</key>
+\t\t<integer>0</integer>
+\t</dict>
+\t<key>ProcessType</key>
+\t<string>Background</string>
+\t<key>LowPriorityIO</key>
+\t<true/>
+\t<key>Nice</key>
+\t<integer>10</integer>
+";
+    (spec.auto_update && super::update::can_install()).then(|| job_plist(spec, UPDATE_JOB, &["update", "--auto"], keys))
+}
+
+/// The menu bar icon, started at login in the user's GUI session.
+fn tray_plist(spec: &AgentSpec) -> Option<String> {
+    let keys = "\t<key>LimitLoadToSessionType</key>
+\t<string>Aqua</string>
+\t<key>ProcessType</key>
+\t<string>Interactive</string>
+";
+    spec.tray_icon.then(|| job_plist(spec, TRAY_JOB, &["tray"], keys))
+}
+
+/// A helper job running `optiman --config <config> <args>` at load, plus launchd `keys`.
+fn job_plist(spec: &AgentSpec, name: &str, args: &[&str], keys: &str) -> String {
     let exe = xml_escape(&spec.exe.to_string_lossy());
     let config = xml_escape(&spec.config.to_string_lossy());
     let log = xml_escape(&spec.log_dir.join(LAUNCHD_LOG).to_string_lossy());
-    let label = update_label();
+    let label = job_label(name);
+    let args: String = args.iter().map(|a| format!("\t\t<string>{a}</string>\n")).collect();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -280,25 +321,10 @@ fn update_plist(spec: &AgentSpec) -> String {
 		<string>{exe}</string>
 		<string>--config</string>
 		<string>{config}</string>
-		<string>update</string>
-		<string>--auto</string>
-	</array>
-	<key>StartCalendarInterval</key>
-	<dict>
-		<key>Hour</key>
-		<integer>12</integer>
-		<key>Minute</key>
-		<integer>0</integer>
-	</dict>
+{args}	</array>
 	<key>RunAtLoad</key>
 	<true/>
-	<key>ProcessType</key>
-	<string>Background</string>
-	<key>LowPriorityIO</key>
-	<true/>
-	<key>Nice</key>
-	<integer>10</integer>
-	<key>StandardErrorPath</key>
+{keys}	<key>StandardErrorPath</key>
 	<string>{log}</string>
 </dict>
 </plist>
@@ -306,30 +332,24 @@ fn update_plist(spec: &AgentSpec) -> String {
     )
 }
 
-/// Registers the update job when automatic updates are on (and Homebrew can apply them), and
-/// removes it otherwise.
-fn sync_update_job(spec: &AgentSpec) -> Result<()> {
-    if !spec.auto_update || !super::update::can_install() {
-        return remove_update_job();
-    }
-    let path = update_plist_path();
-    let want = update_plist(spec);
-    if fs::read_to_string(&path).ok().as_deref() == Some(want.as_str()) {
+/// Writes and (re)loads a helper job when its plist changed, or removes it (`None`).
+fn sync_job(name: &str, plist: Option<String>) -> Result<()> {
+    let path = job_plist_path(name);
+    let service = format!("{}/{}", domain(), job_label(name));
+    let Some(plist) = plist else {
+        if path.exists() {
+            let _ = launchctl(&["bootout", &service]);
+            fs::remove_file(&path).with_context(|| format!("削除できません: {}", path.display()))?;
+        }
+        return Ok(());
+    };
+    if fs::read_to_string(&path).ok().as_deref() == Some(plist.as_str()) {
         return Ok(());
     }
-    fs::write(&path, want).with_context(|| format!("書き込めません: {}", path.display()))?;
-    let _ = launchctl(&["bootout", &format!("{}/{}", domain(), update_label())]);
+    fs::write(&path, plist).with_context(|| format!("書き込めません: {}", path.display()))?;
+    let _ = launchctl(&["bootout", &service]);
     if !launchctl(&["bootstrap", &domain(), &path.to_string_lossy()])? {
-        bail!("launchctl bootstrap に失敗しました (自動アップデート)");
-    }
-    Ok(())
-}
-
-fn remove_update_job() -> Result<()> {
-    let path = update_plist_path();
-    if path.exists() {
-        let _ = launchctl(&["bootout", &format!("{}/{}", domain(), update_label())]);
-        fs::remove_file(&path).with_context(|| format!("削除できません: {}", path.display()))?;
+        bail!("launchctl bootstrap に失敗しました ({})", job_label(name));
     }
     Ok(())
 }
@@ -367,17 +387,26 @@ mod tests {
             log_dir: PathBuf::from("/logs"),
             folders: vec![PathBuf::from("/Users/a/Pictures"), PathBuf::from("/Volumes/x&y/Photos")],
             auto_update: true,
+            tray_icon: true,
         }
     }
 
     #[test]
     fn update_job_runs_the_scheduled_check_daily() {
-        let p = update_plist(&test_spec());
+        let p = job_plist(&test_spec(), UPDATE_JOB, &["update", "--auto"], "");
         assert!(p.contains("<string>io.github.tsubasatommy.optiman.update</string>"));
-        assert!(p.contains("<string>update</string>\n\t\t<string>--auto</string>"));
+        assert!(p.contains("<string>update</string>\n\t\t<string>--auto</string>\n\t</array>"));
         assert!(p.contains("<string>/c&lt;d&gt;/config.toml</string>"));
-        assert!(p.contains("<key>StartCalendarInterval</key>"));
         assert!(!p.contains("KeepAlive"));
+    }
+
+    #[test]
+    fn tray_job_follows_the_setting() {
+        let p = tray_plist(&test_spec()).unwrap();
+        assert!(p.contains("<string>io.github.tsubasatommy.optiman.tray</string>"));
+        assert!(p.contains("<string>tray</string>\n\t</array>"));
+        assert!(p.contains("<string>Aqua</string>"));
+        assert_eq!(tray_plist(&AgentSpec { tray_icon: false, ..test_spec() }), None);
     }
 
     #[test]

@@ -28,7 +28,7 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_SETCHECK, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
     DestroyWindow, DispatchMessageW, GetMessageW, HMENU, IDC_ARROW, IDCANCEL, IDOK, IsDialogMessageW, LB_ADDSTRING,
-    LB_ERR, LB_GETCURSEL, LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY, LoadCursorW, MB_ICONERROR,
+    LB_ERR, LB_GETCURSEL, LB_RESETCONTENT, LBS_NOINTEGRALHEIGHT, LBS_NOTIFY, LoadCursorW, LoadIconW, MB_ICONERROR,
     MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, MSG, MessageBoxW, NONCLIENTMETRICSW, PostMessageW, PostQuitMessage,
     RegisterClassExW, SPI_GETNONCLIENTMETRICS, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW,
     SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE,
@@ -42,7 +42,7 @@ use crate::app::{self, Settings, ui_text as text};
 use crate::config::{Config, DEFAULT_EFFORT, EFFORT_RANGE, Quality};
 
 const WIDTH: i32 = 560;
-const HEIGHT: i32 = 624;
+const HEIGHT: i32 = 564;
 
 const ID_ADD_INCLUDE: u16 = 101;
 const ID_REMOVE_INCLUDE: u16 = 102;
@@ -75,7 +75,6 @@ struct Ui {
     children: RefCell<Vec<Child>>,
     font: Cell<HFONT>,
     slider: Cell<HWND>,
-    effort_label: Cell<HWND>,
     quality_note: Cell<HWND>,
     include_list: Cell<HWND>,
     exclude_list: Cell<HWND>,
@@ -160,15 +159,14 @@ impl Ui {
     }
 
     fn build(&self) {
-        self.label(text::INTRO, [20, 16, 520, 52]);
-
-        self.label(text::EFFORT, [20, 86, 106, 20]);
+        self.label(text::EFFORT, [20, 26, 106, 20]);
+        self.label(text::EFFORT_LOW, [130, 26, 20, 20]);
         let slider = self.add_child(
             TRACKBAR_CLASSW,
             "",
             WS_TABSTOP | WINDOW_STYLE(TBS_AUTOTICKS),
             ID_SLIDER,
-            [130, 80, 300, 30],
+            [152, 20, 278, 30],
         );
         unsafe {
             let (lo, hi) = (*EFFORT_RANGE.start() as isize, *EFFORT_RANGE.end() as isize);
@@ -177,10 +175,10 @@ impl Ui {
             SendMessageW(slider, TBM_SETPOS, Some(WPARAM(1)), Some(LPARAM(isize::from(self.effort.get()))));
         }
         self.slider.set(slider);
-        self.effort_label.set(self.label(&app::effort_label(self.effort.get()), [440, 86, 110, 20]));
-        self.label(text::EFFORT_HINT, [130, 112, 400, 18]);
+        self.label(text::EFFORT_HIGH, [436, 26, 24, 20]);
+        self.label(text::EFFORT_HINT, [130, 52, 400, 18]);
 
-        self.label(text::QUALITY, [20, 148, 106, 20]);
+        self.label(text::QUALITY, [20, 88, 106, 20]);
         let widths = [150, 70, 70, 70];
         let mut x = 130;
         for (i, (q, w)) in Quality::ALL.iter().zip(widths).enumerate() {
@@ -191,7 +189,7 @@ impl Ui {
                 q.name(),
                 group | WINDOW_STYLE(BS_AUTORADIOBUTTON as u32),
                 ID_QUALITY + i as u16,
-                [x, 146, w, 22],
+                [x, 86, w, 22],
             );
             if *q == self.quality.get() {
                 unsafe {
@@ -201,33 +199,33 @@ impl Ui {
             x += w + 10;
         }
         // WS_GROUP here closes the radio group, so arrow keys stay among the four choices.
-        let note = self.add_child(WC_STATICW, self.quality.get().describe(), WS_GROUP, 0, [130, 174, 410, 40]);
+        let note = self.add_child(WC_STATICW, self.quality.get().describe(), WS_GROUP, 0, [130, 114, 410, 40]);
         self.quality_note.set(note);
 
-        self.label(text::INCLUDE, [20, 226, 400, 20]);
-        self.include_list.set(self.list(ID_INCLUDE_LIST, [20, 248, 410, 110]));
-        self.button(text::ADD, ID_ADD_INCLUDE, [440, 248, 100, 28]);
-        self.button(text::REMOVE, ID_REMOVE_INCLUDE, [440, 282, 100, 28]);
+        self.label(text::INCLUDE, [20, 166, 400, 20]);
+        self.include_list.set(self.list(ID_INCLUDE_LIST, [20, 188, 410, 110]));
+        self.button(text::ADD, ID_ADD_INCLUDE, [440, 188, 100, 28]);
+        self.button(text::REMOVE, ID_REMOVE_INCLUDE, [440, 222, 100, 28]);
 
-        self.label(text::EXCLUDE, [20, 374, 400, 20]);
-        self.exclude_list.set(self.list(ID_EXCLUDE_LIST, [20, 396, 410, 110]));
-        self.button(text::ADD, ID_ADD_EXCLUDE, [440, 396, 100, 28]);
-        self.button(text::REMOVE, ID_REMOVE_EXCLUDE, [440, 430, 100, 28]);
+        self.label(text::EXCLUDE, [20, 314, 400, 20]);
+        self.exclude_list.set(self.list(ID_EXCLUDE_LIST, [20, 336, 410, 110]));
+        self.button(text::ADD, ID_ADD_EXCLUDE, [440, 336, 100, 28]);
+        self.button(text::REMOVE, ID_REMOVE_EXCLUDE, [440, 370, 100, 28]);
 
         if let Some(hint) = image::viewer_hint() {
             let extension = image::viewer_extension_supported();
-            self.hint_label.set(self.label(&hint, [20, 518, if extension { 350 } else { 520 }, 48]));
+            self.hint_label.set(self.label(&hint, [20, 458, if extension { 350 } else { 520 }, 48]));
             if extension {
                 self.extension_button.set(self.button(
                     "拡張機能をインストール",
                     ID_INSTALL_EXTENSION,
-                    [380, 522, 160, 30],
+                    [380, 462, 160, 30],
                 ));
             }
         }
 
-        self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 578, 100, 30]);
-        self.button(text::SAVE, IDOK.0 as u16, [440, 578, 100, 30]);
+        self.button(text::CANCEL, IDCANCEL.0 as u16, [330, 518, 100, 30]);
+        self.button(text::SAVE, IDOK.0 as u16, [440, 518, 100, 30]);
         self.refresh_lists();
     }
 
@@ -298,10 +296,7 @@ impl Ui {
     fn effort_changed(&self) {
         let pos = unsafe { SendMessageW(self.slider.get(), TBM_GETPOS, None, None) }.0;
         let effort = u8::try_from(pos).unwrap_or(DEFAULT_EFFORT).clamp(*EFFORT_RANGE.start(), *EFFORT_RANGE.end());
-        if effort != self.effort.get() {
-            self.effort.set(effort);
-            set_text(self.effort_label.get(), &app::effort_label(effort));
-        }
+        self.effort.set(effort);
     }
 
     fn quality_changed(&self, index: usize) {
@@ -456,6 +451,9 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
         lpfnWndProc: Some(window_proc),
         hInstance: instance.into(),
+        // The app icon embedded by build.rs (MAKEINTRESOURCE(1)); the small one comes from the same
+        // resource.
+        hIcon: unsafe { LoadIconW(Some(instance.into()), PCWSTR(std::ptr::without_provenance(1))) }.unwrap_or_default(),
         hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }.unwrap_or_default(),
         hbrBackground: unsafe { GetSysColorBrush(COLOR_BTNFACE) },
         lpszClassName: class_name,
@@ -475,7 +473,6 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
         children: RefCell::new(Vec::new()),
         font: Cell::new(HFONT::default()),
         slider: Cell::new(HWND::default()),
-        effort_label: Cell::new(HWND::default()),
         quality_note: Cell::new(HWND::default()),
         include_list: Cell::new(HWND::default()),
         exclude_list: Cell::new(HWND::default()),

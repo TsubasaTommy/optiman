@@ -78,13 +78,63 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 </assembly>
 "#;
 
-fn embed_windows_manifest() {
+/// App icon of both executables (Explorer, taskbar, Start menu), rendered by
+/// `scripts/render_icon.py`.
+const ICON: &str = "assets/optiman.ico";
+
+fn embed_windows_resources() {
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let path = out.join("app.manifest");
     fs::write(&path, MANIFEST).expect("write manifest");
     println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
     println!("cargo:rustc-link-arg-bins=/MANIFESTINPUT:{}", path.display());
     println!("cargo:rustc-link-arg-bins=/MANIFESTUAC:NO");
+
+    println!("cargo:rerun-if-changed={ICON}");
+    let ico = fs::read(ICON).expect("read the app icon");
+    let path = out.join("icon.res");
+    fs::write(&path, icon_res(&ico)).expect("write icon.res");
+    // The MSVC linker takes compiled resource files as inputs.
+    println!("cargo:rustc-link-arg-bins={}", path.display());
+}
+
+/// The icon as a compiled resource file: each image as an RT_ICON, plus the RT_GROUP_ICON
+/// directory (ID 1, the one Explorer shows) that lists them.
+fn icon_res(ico: &[u8]) -> Vec<u8> {
+    const RT_ICON: u16 = 3;
+    const RT_GROUP_ICON: u16 = 14;
+    let u32_at = |i: usize| u32::from_le_bytes(ico[i..i + 4].try_into().expect("4 bytes")) as usize;
+    let count = usize::from(u16::from_le_bytes([ico[4], ico[5]]));
+    // A .res file starts with an empty entry.
+    let mut res = [0, 0, 0, 0, 32, 0, 0, 0, 0xFF, 0xFF, 0, 0, 0xFF, 0xFF, 0, 0].to_vec();
+    res.resize(32, 0);
+    // The group directory is the .ico header with each entry's file offset replaced by an ID.
+    let mut group = ico[..6].to_vec();
+    for i in 0..count {
+        let entry = 6 + 16 * i;
+        let (len, offset) = (u32_at(entry + 8), u32_at(entry + 12));
+        let id = u16::try_from(i + 1).expect("icon count");
+        push_resource(&mut res, RT_ICON, id, &ico[offset..offset + len]);
+        group.extend_from_slice(&ico[entry..entry + 12]);
+        group.extend_from_slice(&id.to_le_bytes());
+    }
+    push_resource(&mut res, RT_GROUP_ICON, 1, &group);
+    res
+}
+
+/// Appends one resource with a numeric type and ID, language neutral.
+fn push_resource(res: &mut Vec<u8>, kind: u16, id: u16, data: &[u8]) {
+    res.extend(u32::try_from(data.len()).expect("resource size").to_le_bytes()); // DataSize
+    res.extend(32u32.to_le_bytes()); // HeaderSize
+    for word in [0xFFFF, kind, 0xFFFF, id] {
+        res.extend(u16::to_le_bytes(word)); // TYPE and NAME as ordinals
+    }
+    res.extend(0u32.to_le_bytes()); // DataVersion
+    res.extend(0x1010u16.to_le_bytes()); // MemoryFlags: MOVEABLE | DISCARDABLE
+    res.extend(0u16.to_le_bytes()); // LanguageId
+    res.extend([0; 8]); // Version, Characteristics
+    res.extend_from_slice(data);
+    res.resize(res.len().next_multiple_of(4), 0);
 }
 
 fn main() {
@@ -92,7 +142,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=OPTIMAN_SKIP_LIBJXL");
     if cfg_msvc() {
-        embed_windows_manifest();
+        embed_windows_resources();
     }
     // Type-checking another target (e.g. `cargo check --target x86_64-pc-windows-msvc` on a Mac)
     // does not link, so the native library build can be skipped.

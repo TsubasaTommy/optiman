@@ -7,23 +7,23 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageFileType, NSBorderType,
-    NSButton, NSCell, NSControlStateValueOff, NSControlStateValueOn, NSLineBreakMode, NSModalResponseOK, NSOpenPanel,
-    NSScrollView, NSSlider, NSTableColumn, NSTableView, NSTableViewDataSource, NSTextField, NSView, NSWindow,
-    NSWindowStyleMask,
+    NSButton, NSCell, NSControlStateValueOff, NSControlStateValueOn, NSImage, NSLineBreakMode, NSModalResponseOK,
+    NSOpenPanel, NSScrollView, NSSlider, NSTableColumn, NSTableView, NSTableViewDataSource, NSTextField, NSView,
+    NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    NSDictionary, NSInteger, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
+    NSData, NSDictionary, NSInteger, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
 
 use crate::app::{self, Settings, ui_text as text};
 use crate::config::{Config, EFFORT_RANGE, Quality};
 
 const WIDTH: f64 = 560.0;
-const HEIGHT: f64 = 624.0;
+const HEIGHT: f64 = 564.0;
 
 /// Frame from top-left based coordinates (AppKit's origin is bottom-left).
 fn frame(x: f64, top: f64, w: f64, h: f64) -> NSRect {
@@ -39,7 +39,6 @@ pub struct Ivars {
     window: OnceCell<Retained<NSWindow>>,
     include_table: OnceCell<Retained<NSTableView>>,
     exclude_table: OnceCell<Retained<NSTableView>>,
-    effort_label: OnceCell<Retained<NSTextField>>,
     quality_note: OnceCell<Retained<NSTextField>>,
 }
 
@@ -81,9 +80,6 @@ define_class!(
         fn effort_changed(&self, sender: &NSSlider) {
             let value = sender.integerValue().clamp(i64::from(*EFFORT_RANGE.start()) as NSInteger, i64::from(*EFFORT_RANGE.end()) as NSInteger) as u8;
             self.ivars().effort.set(value);
-            if let Some(label) = self.ivars().effort_label.get() {
-                label.setStringValue(&NSString::from_str(&app::effort_label(value)));
-            }
         }
 
         #[unsafe(method(qualityChanged:))]
@@ -151,7 +147,6 @@ impl Controller {
             window: OnceCell::new(),
             include_table: OnceCell::new(),
             exclude_table: OnceCell::new(),
-            effort_label: OnceCell::new(),
             quality_note: OnceCell::new(),
         });
         unsafe { msg_send![super(this), init] }
@@ -278,9 +273,8 @@ impl Controller {
         window.setTitle(&NSString::from_str(text::TITLE));
         let content = window.contentView().expect("content view");
 
-        self.label(text::INTRO, frame(20.0, 16.0, 520.0, 52.0), &content);
-
-        self.label(text::EFFORT, frame(20.0, 84.0, 110.0, 20.0), &content);
+        self.label(text::EFFORT, frame(20.0, 24.0, 110.0, 20.0), &content);
+        self.label(text::EFFORT_LOW, frame(130.0, 24.0, 20.0, 20.0), &content);
         let target: &AnyObject = self.as_ref();
         let slider = unsafe {
             NSSlider::sliderWithValue_minValue_maxValue_target_action(
@@ -294,14 +288,12 @@ impl Controller {
         };
         slider.setNumberOfTickMarks(i64::from(*EFFORT_RANGE.end() - *EFFORT_RANGE.start() + 1) as NSInteger);
         slider.setAllowsTickMarkValuesOnly(true);
-        slider.setFrame(frame(130.0, 80.0, 300.0, 28.0));
+        slider.setFrame(frame(152.0, 20.0, 278.0, 28.0));
         content.addSubview(&slider);
-        let effort_label =
-            self.label(&app::effort_label(self.ivars().effort.get()), frame(440.0, 84.0, 110.0, 20.0), &content);
-        let _ = self.ivars().effort_label.set(effort_label);
-        self.label(text::EFFORT_HINT, frame(130.0, 110.0, 400.0, 18.0), &content);
+        self.label(text::EFFORT_HIGH, frame(436.0, 24.0, 24.0, 20.0), &content);
+        self.label(text::EFFORT_HINT, frame(130.0, 50.0, 400.0, 18.0), &content);
 
-        self.label(text::QUALITY, frame(20.0, 146.0, 110.0, 20.0), &content);
+        self.label(text::QUALITY, frame(20.0, 86.0, 110.0, 20.0), &content);
         // Radio buttons that share a superview and an action form one group.
         let widths = [150.0, 70.0, 70.0, 70.0];
         let mut x = 130.0;
@@ -320,31 +312,31 @@ impl Controller {
             } else {
                 NSControlStateValueOff
             });
-            radio.setFrame(frame(x, 144.0, w, 22.0));
+            radio.setFrame(frame(x, 84.0, w, 22.0));
             content.addSubview(&radio);
             x += w + 10.0;
         }
-        let note = self.label(self.ivars().quality.get().describe(), frame(130.0, 172.0, 410.0, 36.0), &content);
+        let note = self.label(self.ivars().quality.get().describe(), frame(130.0, 112.0, 410.0, 36.0), &content);
         let _ = self.ivars().quality_note.set(note);
 
-        self.label(text::INCLUDE, frame(20.0, 224.0, 400.0, 20.0), &content);
-        let include = self.folder_list(246.0, &content);
+        self.label(text::INCLUDE, frame(20.0, 164.0, 400.0, 20.0), &content);
+        let include = self.folder_list(186.0, &content);
         let _ = self.ivars().include_table.set(include);
-        self.button(text::ADD, sel!(addInclude:), frame(440.0, 246.0, 100.0, 30.0), &content);
-        self.button(text::REMOVE, sel!(removeInclude:), frame(440.0, 280.0, 100.0, 30.0), &content);
+        self.button(text::ADD, sel!(addInclude:), frame(440.0, 186.0, 100.0, 30.0), &content);
+        self.button(text::REMOVE, sel!(removeInclude:), frame(440.0, 220.0, 100.0, 30.0), &content);
 
-        self.label(text::EXCLUDE, frame(20.0, 372.0, 400.0, 20.0), &content);
-        let exclude = self.folder_list(394.0, &content);
+        self.label(text::EXCLUDE, frame(20.0, 312.0, 400.0, 20.0), &content);
+        let exclude = self.folder_list(334.0, &content);
         let _ = self.ivars().exclude_table.set(exclude);
-        self.button(text::ADD, sel!(addExclude:), frame(440.0, 394.0, 100.0, 30.0), &content);
-        self.button(text::REMOVE, sel!(removeExclude:), frame(440.0, 428.0, 100.0, 30.0), &content);
+        self.button(text::ADD, sel!(addExclude:), frame(440.0, 334.0, 100.0, 30.0), &content);
+        self.button(text::REMOVE, sel!(removeExclude:), frame(440.0, 368.0, 100.0, 30.0), &content);
 
         if let Some(hint) = super::image::viewer_hint() {
-            self.label(&hint, frame(20.0, 520.0, 520.0, 36.0), &content);
+            self.label(&hint, frame(20.0, 460.0, 520.0, 36.0), &content);
         }
 
-        self.button(text::CANCEL, sel!(cancel:), frame(330.0, 574.0, 100.0, 32.0), &content);
-        let save = self.button(text::SAVE, sel!(save:), frame(440.0, 574.0, 100.0, 32.0), &content);
+        self.button(text::CANCEL, sel!(cancel:), frame(330.0, 514.0, 100.0, 32.0), &content);
+        let save = self.button(text::SAVE, sel!(save:), frame(440.0, 514.0, 100.0, 32.0), &content);
         save.setKeyEquivalent(&NSString::from_str("\r"));
 
         window.center();
@@ -384,6 +376,9 @@ pub fn run_settings(config_path: &Path) -> Result<()> {
     let cfg = Config::load(config_path).unwrap_or_default();
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    if let Some(icon) = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(super::APP_ICON)) {
+        unsafe { app.setApplicationIconImage(Some(&icon)) };
+    }
     let controller = Controller::new(mtm, config_path, &cfg);
     app.setDelegate(Some(ProtocolObject::from_ref(&*controller)));
     #[allow(deprecated)]

@@ -7,9 +7,11 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail};
 
+use super::APP_ICON;
 use super::paths::home_dir;
 use crate::platform::AgentSpec;
 use crate::{APP_NAME, DISPLAY_NAME};
@@ -136,7 +138,7 @@ pub fn install(spec: &AgentSpec<'_>, start_now: bool) -> Result<()> {
     fs::create_dir_all(path.parent().unwrap_or(Path::new("/"))).context("LaunchAgents フォルダを作成できません")?;
     fs::create_dir_all(spec.log_dir).ok();
     fs::write(&path, plist(spec)).with_context(|| format!("書き込めません: {}", path.display()))?;
-    install_app_bundle(spec.exe)?;
+    install_app_bundle(&app_bundle_path(), spec.exe)?;
     let _ = launchctl(&["bootout", &service()]);
     if start_now {
         start()?;
@@ -186,11 +188,24 @@ pub fn describe() -> String {
 
 /// A minimal app bundle whose executable is a symlink to the CLI; launched from the bundle, the
 /// binary opens the settings window. Created locally, so Gatekeeper does not quarantine it.
-fn install_app_bundle(exe: &Path) -> Result<()> {
-    let app = app_bundle_path();
+fn install_app_bundle(app: &Path, exe: &Path) -> Result<()> {
     let macos = app.join("Contents/MacOS");
-    fs::create_dir_all(&macos).with_context(|| format!("作成できません: {}", macos.display()))?;
-    let info = format!(
+    let resources = app.join("Contents/Resources");
+    for dir in [&macos, &resources] {
+        fs::create_dir_all(dir).with_context(|| format!("作成できません: {}", dir.display()))?;
+    }
+    fs::write(resources.join("AppIcon.icns"), APP_ICON)?;
+    fs::write(app.join("Contents/Info.plist"), info_plist())?;
+    let link = macos.join(APP_NAME);
+    let _ = fs::remove_file(&link);
+    symlink(exe, &link).with_context(|| format!("リンクを作成できません: {}", link.display()))?;
+    // Finder and Launchpad notice the new icon when the bundle itself looks modified.
+    let _ = fs::File::open(app).and_then(|d| d.set_modified(SystemTime::now()));
+    Ok(())
+}
+
+fn info_plist() -> String {
+    format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -203,6 +218,8 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
 	<string>{DISPLAY_NAME}</string>
 	<key>CFBundleDisplayName</key>
 	<string>{DISPLAY_NAME}</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -215,12 +232,22 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
 </plist>
 "#,
         crate::VERSION
-    );
-    fs::write(app.join("Contents/Info.plist"), info)?;
-    let link = macos.join(APP_NAME);
-    let _ = fs::remove_file(&link);
-    symlink(exe, &link).with_context(|| format!("リンクを作成できません: {}", link.display()))?;
+    )
+}
+
+/// After an upgrade (`brew upgrade` replaces only the binary), rewrites the settings app so its
+/// version and icon follow the binary. Only a bundle that launches this binary is touched.
+pub fn refresh_app_bundle() -> Result<()> {
+    let (app, exe) = (app_bundle_path(), agent_executable()?);
+    if needs_refresh(&app, &exe) {
+        install_app_bundle(&app, &exe)?;
+    }
     Ok(())
+}
+
+fn needs_refresh(app: &Path, exe: &Path) -> bool {
+    let ours = fs::read_link(app.join("Contents/MacOS").join(APP_NAME)).is_ok_and(|target| target == exe);
+    ours && fs::read_to_string(app.join("Contents/Info.plist")).ok() != Some(info_plist())
 }
 
 /// True when this process was started from the settings app bundle.
@@ -254,5 +281,20 @@ mod tests {
     fn cellar_paths_map_to_the_stable_link() {
         let p = Path::new("/nonexistent-prefix/Cellar/optiman/0.2.0/bin/optiman");
         assert_eq!(stable_path(p), p, "falls back when the link does not exist");
+    }
+
+    #[test]
+    fn app_bundle_carries_the_icon_and_follows_upgrades() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("Optiman.app");
+        let exe = Path::new("/opt/homebrew/bin/optiman");
+        install_app_bundle(&app, exe).unwrap();
+        assert!(fs::read_to_string(app.join("Contents/Info.plist")).unwrap().contains("<key>CFBundleIconFile</key>"));
+        assert_eq!(fs::read(app.join("Contents/Resources/AppIcon.icns")).unwrap(), APP_ICON);
+        assert!(!needs_refresh(&app, exe));
+
+        fs::write(app.join("Contents/Info.plist"), "an older version").unwrap();
+        assert!(needs_refresh(&app, exe));
+        assert!(!needs_refresh(&app, Path::new("/elsewhere/optiman")), "another binary's bundle is left alone");
     }
 }

@@ -3,296 +3,544 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>optimize-image-folder</title>
-<meta name="description" content="写真フォルダを監視して、追加された写真を画質の劣化なしで JPEG XL に変換する macOS / Windows 用ツール。待機中はリソースを使いません。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M7 22l6-7 4 5 3-3 5 5z' fill='white'/%3E%3Ccircle cx='21' cy='11' r='3' fill='white'/%3E%3C/svg%3E">
+<meta name="description" content="写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する macOS / Windows 用ツール。待っている間は CPU を使いません。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20'%3E%3Crect width='10' height='10' fill='%23735244'/%3E%3Crect x='10' width='10' height='10' fill='%23c29682'/%3E%3Crect x='20' width='10' height='10' fill='%23627a9d'/%3E%3Crect y='10' width='10' height='10' fill='%23576c43'/%3E%3Crect x='10' y='10' width='10' height='10' fill='%238580b1'/%3E%3Crect x='20' y='10' width='10' height='10' fill='%2367bdaa'/%3E%3C/svg%3E">
+<script>
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("anim");
+</script>
 <style>
+  /* Colors come from the photographic grey card and the ColorChecker reference chart. */
   :root {
-    --bg: #f7f7f5;
-    --surface: #ffffff;
-    --text: #1c1c1e;
-    --muted: #5f6368;
-    --border: #e3e3df;
-    --accent: #2563eb;
-    --accent-text: #ffffff;
-    --code-bg: #f0f0ec;
-    --warn-bg: #fff4e5;
-    --warn-border: #f5b04c;
-    --warn-text: #6b3d00;
-    --ok: #15803d;
+    --page: #ffffff;
+    --ink: #1f2021;
+    --muted: #5c5e60;
+    --rule: #dcddda;
+    --code-bg: #f2f3f1;
+    --link: #07758f;
+    --ok: #2f7a3a;
+    --focus: #07758f;
+    --card: #767675;
+    --card-ink: #ffffff;
+    --hero-code: #262728;
+    --hero-code-ink: #f3f3f2;
+    --win: #ffffff;
+    --win-ink: #1f2021;
+    --win-muted: #5c5e60;
+    --win-rule: #e6e7e4;
+    --win-chrome: #f4f5f3;
+    --bar: #3b3d3f;
+    --bar-track: #e3e4e1;
+    --warn-bg: #fdf3dc;
+    --warn-rule: #e0a32e;
+    --warn-ink: #4f3800;
+
+    --mincho: "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", serif;
+    --gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #121214;
-      --surface: #1c1c20;
-      --text: #ececee;
-      --muted: #a1a1aa;
-      --border: #2e2e34;
-      --accent: #5b8cff;
-      --accent-text: #0b0b0d;
-      --code-bg: #26262c;
-      --warn-bg: #2b2112;
-      --warn-border: #a86b12;
-      --warn-text: #f7d39b;
-      --ok: #4ade80;
+      --page: #161718;
+      --ink: #e7e8e6;
+      --muted: #a2a5a7;
+      --rule: #313335;
+      --code-bg: #222325;
+      --link: #63c4dc;
+      --ok: #74c47f;
+      --focus: #63c4dc;
+      --card: #4b4b4a;
+      --hero-code: #1a1b1c;
+      --win: #1f2022;
+      --win-ink: #e7e8e6;
+      --win-muted: #a2a5a7;
+      --win-rule: #2f3133;
+      --win-chrome: #26282a;
+      --bar: #c9cbcc;
+      --bar-track: #34363a;
+      --warn-bg: #2a2211;
+      --warn-rule: #b0801e;
+      --warn-ink: #f1d598;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #121214;
-    --surface: #1c1c20;
-    --text: #ececee;
-    --muted: #a1a1aa;
-    --border: #2e2e34;
-    --accent: #5b8cff;
-    --accent-text: #0b0b0d;
-    --code-bg: #26262c;
-    --warn-bg: #2b2112;
-    --warn-border: #a86b12;
-    --warn-text: #f7d39b;
-    --ok: #4ade80;
+    --page: #161718;
+    --ink: #e7e8e6;
+    --muted: #a2a5a7;
+    --rule: #313335;
+    --code-bg: #222325;
+    --link: #63c4dc;
+    --ok: #74c47f;
+    --focus: #63c4dc;
+    --card: #4b4b4a;
+    --hero-code: #1a1b1c;
+    --win: #1f2022;
+    --win-ink: #e7e8e6;
+    --win-muted: #a2a5a7;
+    --win-rule: #2f3133;
+    --win-chrome: #26282a;
+    --bar: #c9cbcc;
+    --bar-track: #34363a;
+    --warn-bg: #2a2211;
+    --warn-rule: #b0801e;
+    --warn-ink: #f1d598;
   }
+
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Segoe UI", sans-serif;
-    line-height: 1.75;
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--gothic);
+    font-size: 16px;
+    line-height: 1.85;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 64px; }
-  header h1 { font-size: clamp(1.7rem, 4.5vw, 2.4rem); line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.01em; }
-  header p.lead { font-size: 1.1rem; color: var(--muted); margin: 0 0 16px; }
-  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-  .badge { font-size: .8rem; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
-  .badge strong { color: var(--text); font-weight: 600; }
-  h2 { font-size: 1.3rem; margin: 48px 0 12px; }
-  h3 { font-size: 1.05rem; margin: 24px 0 8px; }
-  p { margin: 0 0 12px; }
-  a { color: var(--accent); }
-  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0 8px; }
-  .dl {
-    display: flex; flex-direction: column; gap: 2px;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-    padding: 16px; text-decoration: none; color: var(--text);
-    transition: border-color .15s, transform .15s;
+  a { color: var(--link); text-underline-offset: .2em; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+  code { font-family: var(--mono); }
+  .wrap { max-width: 72rem; margin: 0 auto; padding: 0 16px; }
+  @media (min-width: 640px) { .wrap { padding: 0 32px; } }
+
+  /* ---------- Hero: a grey card with the folder on it ---------- */
+  .hero { background: var(--card); color: var(--card-ink); padding-bottom: 56px; }
+  .hero a { color: inherit; }
+  .hero :focus-visible { outline-color: #ffffff; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; font-size: 14px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; letter-spacing: .01em; }
+  .mark { display: grid; grid-template-columns: repeat(3, 7px); grid-template-rows: repeat(2, 7px); flex: none; }
+  .mark i:nth-child(1) { background: #735244; }
+  .mark i:nth-child(2) { background: #c29682; }
+  .mark i:nth-child(3) { background: #627a9d; }
+  .mark i:nth-child(4) { background: #576c43; }
+  .mark i:nth-child(5) { background: #8580b1; }
+  .mark i:nth-child(6) { background: #67bdaa; }
+  .top-links { display: flex; gap: 20px; }
+  .top-links a { text-decoration: none; }
+  .top-links a:hover { text-decoration: underline; }
+
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 32px; }
+  @media (min-width: 1000px) {
+    .hero-grid { grid-template-columns: minmax(0, 1fr) 28rem; gap: 64px; align-items: center; padding-top: 48px; }
   }
-  .dl:hover { border-color: var(--accent); transform: translateY(-1px); }
-  .dl .os { font-weight: 700; font-size: 1.05rem; }
-  .dl .arch { color: var(--muted); font-size: .9rem; }
-  .dl .file { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: var(--accent-text); border-radius: 8px; padding: 6px 12px; font-weight: 600; font-size: .9rem; align-self: flex-start; }
-  .dl.recommended { border-color: var(--accent); }
-  .small { font-size: .9rem; color: var(--muted); }
-  .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); border-radius: 12px; padding: 14px 16px; margin: 20px 0; }
-  .warn strong { font-weight: 700; }
-  .cmd { position: relative; margin: 8px 0 16px; }
+  h1 {
+    font-family: var(--mincho);
+    font-weight: 600;
+    font-size: clamp(2.25rem, 7.4vw, 3.75rem);
+    line-height: 1.3;
+    letter-spacing: .04em;
+    font-feature-settings: "palt";
+    margin: 0 0 24px;
+    word-break: auto-phrase;
+  }
+  .nb { white-space: nowrap; }
+  .lead { font-size: 18px; line-height: 1.9; margin: 0 0 32px; max-width: 34em; word-break: auto-phrase; text-wrap: pretty; }
+
+  .cta[hidden] { display: none; }
+  .cta-label { font-size: 14px; margin: 0 0 8px; }
+  .hero .cmd pre { background: var(--hero-code); color: var(--hero-code-ink); border: 0; }
+  .hero .cmd .copy { background: transparent; color: var(--hero-code-ink); border-color: rgba(255, 255, 255, .35); }
+  .hero .cmd .copy:hover { border-color: #ffffff; }
+  .download {
+    display: inline-block; background: #ffffff; color: #1f2021; text-decoration: none;
+    font-weight: 700; padding: 12px 22px; border-radius: 6px;
+  }
+  .hero .download { color: #1f2021; }
+  .download:hover { background: #f0f0ef; }
+  .cta-note { font-size: 14px; margin: 12px 0 0; }
+  .os-switch { font-size: 14px; margin: 20px 0 0; }
+  .os-switch button {
+    font: inherit; color: inherit; background: none; border: 0; padding: 0;
+    text-decoration: underline; text-underline-offset: .2em; cursor: pointer;
+  }
+
+  /* The folder window */
+  .folder { margin: 0; }
+  .window {
+    background: var(--win); color: var(--win-ink); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 28px 56px -20px rgba(0, 0, 0, .45);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--win-chrome); border-bottom: 1px solid var(--win-rule); font-size: 13px; font-weight: 700;
+  }
+  .titlebar .lights { display: flex; gap: 6px; }
+  .titlebar .lights i { width: 10px; height: 10px; border-radius: 50%; background: var(--win-rule); }
+  .colhead {
+    display: grid; grid-template-columns: 1fr auto; padding: 6px 16px 6px 52px;
+    font-size: 12px; color: var(--win-muted); border-bottom: 1px solid var(--win-rule);
+  }
+  .files { list-style: none; margin: 0; padding: 0; }
+  .file {
+    display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 6px;
+    padding: 14px 16px; border-bottom: 1px solid var(--win-rule);
+    font-variant-numeric: tabular-nums;
+  }
+  .file .icon { grid-row: 1 / span 3; width: 24px; height: 30px; color: var(--win-muted); }
+  .file .name { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+  .file .size { font-size: 14px; text-align: right; white-space: nowrap; }
+  .file .size .pct { color: var(--win-muted); margin-left: 6px; }
+  .file .bar { grid-column: 2 / 4; height: 6px; border-radius: 3px; background: var(--bar-track); overflow: hidden; }
+  .file .bar span {
+    display: block; height: 100%; width: calc(var(--ratio) * 100%); background: var(--bar);
+    transition: width .9s cubic-bezier(.2, .7, .2, 1);
+  }
+  .file .note {
+    grid-column: 2 / 4; display: flex; gap: 6px; align-items: flex-start;
+    font-size: 13px; line-height: 1.6; color: var(--win-muted); transition: opacity .35s; word-break: auto-phrase;
+  }
+  .file .note svg { flex: none; width: 14px; height: 14px; margin-top: 3px; }
+  .file .note.ok svg { color: var(--ok); }
+  /* With .anim on <html>, rows start as the original files; .is-working, then .is-done, convert them. */
+  .file .old { display: none; }
+  .anim .file:not(.is-done) .old { display: inline; }
+  .anim .file:not(.is-done) .new { display: none; }
+  .anim .file:not(.is-done) .note { opacity: 0; }
+  .anim .file:not(.is-done):not(.is-working) .bar span { width: 100%; }
+  .anim .file.is-working .name, .anim .file.is-working .size { color: var(--win-muted); }
+  .status {
+    display: flex; justify-content: space-between; gap: 12px; padding: 8px 16px;
+    background: var(--win-chrome); font-size: 12px; color: var(--win-muted);
+  }
+  .folder figcaption { font-size: 13px; margin-top: 14px; }
+
+  /* ---------- Body ---------- */
+  .body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 64px; padding-top: 24px; padding-bottom: 80px; }
+  @media (min-width: 1000px) { .body { grid-template-columns: minmax(0, 48rem) minmax(10rem, 1fr); } }
+  .toc { display: none; }
+  @media (min-width: 1000px) {
+    .toc { display: block; grid-column: 2; grid-row: 1; align-self: start; position: sticky; top: 0; padding-top: 72px; }
+    .toc ol { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 2.2; }
+    .toc a { color: var(--muted); text-decoration: none; }
+    .toc a:hover { color: var(--ink); text-decoration: underline; }
+  }
+  main { grid-column: 1; grid-row: 1; min-width: 0; }
+  main p, main dl, .warn { max-width: 40rem; }
+  main > section { padding-top: 64px; }
+  h2 {
+    font-family: var(--mincho); font-weight: 600; font-size: 28px; line-height: 1.4;
+    letter-spacing: .04em; font-feature-settings: "palt"; margin: 0 0 20px; word-break: auto-phrase;
+  }
+  h3 { font-size: 17px; line-height: 1.6; margin: 32px 0 10px; }
+  h2 + h3, .panel > h3:first-child { margin-top: 0; }
+  p { margin: 0 0 14px; }
+  .small { font-size: 14px; color: var(--muted); line-height: 1.8; }
+  ul, ol { padding-left: 1.4em; margin: 0 0 14px; }
+
+  .cmd { position: relative; margin: 0 0 16px; }
   pre {
-    background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
-    padding: 12px 14px; margin: 0; overflow-x: auto; font-size: .88rem; line-height: 1.6;
+    margin: 0; padding: 14px 84px 14px 16px; white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px;
+    font-size: 14px; line-height: 1.7;
   }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  p code, li code, td code { background: var(--code-bg); border-radius: 5px; padding: 1px 5px; font-size: .88em; }
+  p code, li code, td code, dd code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: .88em; overflow-wrap: anywhere; }
   .copy {
-    position: absolute; top: 8px; right: 8px; font: inherit; font-size: .78rem;
-    background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
-    padding: 2px 8px; cursor: pointer;
+    position: absolute; top: 9px; right: 9px; font: inherit; font-size: 12px; line-height: 1.6;
+    background: var(--page); color: var(--muted); border: 1px solid var(--rule); border-radius: 4px;
+    padding: 2px 9px; cursor: pointer;
   }
-  .copy:hover { color: var(--text); }
-  .tabs { display: flex; gap: 6px; margin-top: 8px; }
-  .tab { font: inherit; font-size: .9rem; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
-  .tab[aria-selected="true"] { background: var(--surface); color: var(--text); border-color: var(--accent); }
+  .copy:hover { color: var(--ink); }
+  @media (max-width: 639px) { pre { font-size: 13px; padding-right: 72px; } }
+
+  .tabs { display: flex; gap: 4px; margin: 0 0 28px; border-bottom: 1px solid var(--rule); }
+  .tab {
+    font: inherit; font-size: 15px; background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--muted); padding: 6px 14px 8px; margin-bottom: -1px; cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }
   .panel[hidden] { display: none; }
-  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-  .feature { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .feature h3 { margin: 0 0 4px; font-size: 1rem; }
-  .feature p { margin: 0; color: var(--muted); font-size: .92rem; }
-  .table-wrap { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: .92rem; background: var(--surface); border-radius: 10px; overflow: hidden; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
-  tr:last-child td { border-bottom: none; }
-  ol, ul { padding-left: 1.4em; margin: 0 0 12px; }
-  li { margin: 2px 0; }
-  .note { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 16px 0; }
-  .note strong { font-weight: 700; }
-  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; }
+  main .download { background: var(--ink); color: var(--page); margin: 4px 0 12px; }
+  main .download:hover { background: var(--muted); }
+
+  .table-wrap { overflow-x: auto; margin: 0 0 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.75; word-break: auto-phrase; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 16px 10px 0; border-bottom: 1px solid var(--rule); }
+  th:last-child, td:last-child { padding-right: 0; }
+  thead th { font-size: 13px; font-weight: 700; color: var(--muted); border-bottom-color: var(--ink); white-space: nowrap; }
+  tbody th { font-weight: 700; min-width: 7em; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td code { white-space: nowrap; overflow-wrap: normal; }
+  @media (min-width: 640px) { .cmds td:first-child { white-space: nowrap; } }
+
+  @media (max-width: 639px) {
+    table.stack thead { display: none; }
+    table.stack, table.stack tbody, table.stack tr, table.stack th, table.stack td { display: block; }
+    table.stack tr { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+    table.stack th, table.stack td { border: 0; padding: 2px 0; }
+    table.stack tbody th { font-size: 16px; margin-bottom: 4px; }
+    table.stack td[data-label] { position: relative; padding-left: 6.5rem; }
+    table.stack td[data-label]::before {
+      content: attr(data-label); position: absolute; left: 0; top: 4px; width: 6rem;
+      font-size: 13px; line-height: 1.6; font-weight: 700; color: var(--muted);
+    }
+  }
+  .warn { background: var(--warn-bg); color: var(--warn-ink); border-left: 4px solid var(--warn-rule); padding: 16px 18px; margin: 24px 0; border-radius: 0 6px 6px 0; }
+  .warn p:last-child { margin-bottom: 0; }
+  .warn code { background: rgba(0, 0, 0, .06); }
+
+  dl.how { margin: 0 0 24px; }
+  .how dt { font-weight: 700; margin-top: 18px; }
+  .how dt:first-child { margin-top: 0; }
+  .how dd { margin: 2px 0 0; color: var(--muted); }
+
+  .links { display: flex; flex-wrap: wrap; gap: 6px 24px; list-style: none; padding: 0; font-size: 14px; }
+
+  footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 20px; padding-bottom: 40px; }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .file .bar span, .file .note { transition: none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <div class="badges">
-      <span class="badge">最新版 <strong id="version">—</strong></span>
-      <span class="badge">macOS 11+ / Windows 10+</span>
-      <span class="badge">画質の劣化なし</span>
-      <span class="badge">MIT License</span>
-    </div>
-    <h1>optimize-image-folder</h1>
-    <p class="lead">写真フォルダを見張って、追加された写真を<strong>画質の劣化なしで JPEG XL に変換</strong>するツール。JPEG は元の JPEG にバイト単位で戻せる形で約 20% 小さく、PNG は完全ロスレスで 30〜45% 小さくなります。何もしていない間はリソースを使いません。</p>
-  </header>
 
-  <section id="install">
-    <h2>インストール</h2>
-    <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true" data-panel="p-mac">macOS</button>
-      <button class="tab" role="tab" aria-selected="false" data-panel="p-win">Windows</button>
-    </div>
-    <div class="panel" id="p-mac">
-      <h3>Homebrew (おすすめ)</h3>
-      <div class="cmd"><pre><code>brew install tsubasatommy/tap/optimize-image-folder
+<header class="hero">
+  <div class="wrap">
+    <nav class="top" aria-label="サイト">
+      <a class="brand" href="./"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>optimize-image-folder</a>
+      <span class="top-links">
+        <a id="version" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest">最新版</a>
+        <a href="https://github.com/TsubasaTommy/optimize-image-folder">GitHub</a>
+      </span>
+    </nav>
+
+    <div class="hero-grid">
+      <div>
+        <h1>写真はそのまま。<br>容量だけ、小さく。</h1>
+        <p class="lead">写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換します。JPEG は元のファイルにいつでも戻せる形のまま<span class="nb">約 2 割</span>、PNG は<span class="nb">約 3〜4 割</span>小さくなります。待っている間は CPU を使いません。</p>
+
+        <div class="cta" data-os="mac">
+          <p class="cta-label">macOS 11 以降 (Homebrew)</p>
+          <div class="cmd"><pre><code>brew install tsubasatommy/tap/optimize-image-folder
 optimize-image-folder install</code></pre></div>
-      <p><code>install</code> で、変換するフォルダ (既定は <code>~/Pictures</code>。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は <code>optimize-image-folder settings</code> か <code>~/Applications/Optimize Image Folder.app</code> で開けます。</p>
-      <h3>Homebrew を使わない場合</h3>
-      <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh</code></pre></div>
-      <p class="small">最新リリースをダウンロードし、SHA256 を確認してから <code>~/.local/bin</code> に置きます。macOS 14 以降なら、変換した JPEG XL を Finder・プレビュー・写真でそのまま表示できます。</p>
-    </div>
-    <div class="panel" id="p-win" hidden>
-      <h3>winget (おすすめ)</h3>
-      <div class="cmd"><pre><code>winget install TsubasaTommy.OptimizeImageFolder</code></pre></div>
-      <p class="small">winget への登録は Microsoft の審査中です (<a href="https://github.com/microsoft/winget-pkgs/pull/486181">winget-pkgs #486181</a>)。見つからない場合は、下の Setup.exe か PowerShell のコマンドで入れてください。</p>
-      <h3>インストーラーを直接ダウンロードする場合</h3>
-      <div class="downloads">
-        <a class="dl recommended" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe">
-          <span class="os">Windows</span>
-          <span class="arch">x64 / ARM64 共通・管理者権限不要</span>
-          <span class="file">⬇ Setup.exe</span>
-        </a>
+        </div>
+        <div class="cta" data-os="win" hidden>
+          <p class="cta-label">Windows 10 / 11 (x64 と ARM64 の両方に対応、管理者権限は不要)</p>
+          <a class="download" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe">Setup.exe をダウンロード</a>
+          <p class="cta-note">SmartScreen の警告が出た場合は、<a href="#install">インストール</a>の説明を見てください。</p>
+        </div>
+        <p class="os-switch"><button type="button" data-os-target="win">Windows 用を表示</button><button type="button" data-os-target="mac" hidden>macOS 用を表示</button></p>
       </div>
-      <p>インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optimize Image Folder」から開けます。</p>
-      <h3>PowerShell から入れる場合</h3>
-      <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex</code></pre></div>
-      <p class="small">最新の Setup.exe をダウンロードし、SHA256 を確認してから起動します。</p>
-      <p class="small">インストーラーにはコード署名をしていません (証明書は有料のため)。winget で入れると SmartScreen の警告は出ません。ブラウザでダウンロードした Setup.exe では警告が出ることがあるので、<a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> でハッシュを確かめてから「詳細情報」→「実行」を選んでください。</p>
-    </div>
-  </section>
 
-  <section id="viewer">
-    <h2>JPEG XL を表示するには</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><th>OS</th><th>表示方法</th></tr>
-        <tr><td>macOS 14 以降</td><td>標準で表示できます (Finder、プレビュー、写真)。</td></tr>
-        <tr><td>Windows 11 24H2 以降</td><td>Microsoft 公式の無料拡張「<a href="https://apps.microsoft.com/detail/9MZPRTH5C0TB">JPEG XL Image Extension</a>」で、エクスプローラーやフォトで表示できます。<strong>インストーラーがこの拡張も一緒にインストールします</strong> (チェックを外せば入れません)。あとから入れる場合は、設定画面の「拡張機能をインストール」を押すか、次を実行します。<div class="cmd"><pre><code>winget install --id 9MZPRTH5C0TB --source msstore</code></pre></div></td></tr>
-        <tr><td>それ以前の OS</td><td>変換は行われますが、標準のアプリでは表示できません。<code>restore</code> でいつでも元に戻せます。</td></tr>
-      </table>
+      <figure class="folder">
+        <div class="window">
+          <div class="titlebar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>ピクチャ</div>
+          <div class="colhead" aria-hidden="true"><span>名前</span><span>サイズ</span></div>
+          <ul class="files">
+            <li class="file">
+              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <span class="name"><span class="old" aria-hidden="true">IMG_2041.jpg</span><span class="new">IMG_2041.jxl</span></span>
+              <span class="size"><span class="old" aria-hidden="true">2.29 MB</span><span class="new">1.85 MB<span class="pct">−19%</span></span></span>
+              <span class="bar" style="--ratio: .81" aria-hidden="true"><span></span></span>
+              <span class="note ok"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>元の JPEG にバイト単位で戻せることを確認</span>
+            </li>
+            <li class="file">
+              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <span class="name"><span class="old" aria-hidden="true">夕景_4K.png</span><span class="new">夕景_4K.jxl</span></span>
+              <span class="size"><span class="old" aria-hidden="true">10.3 MB</span><span class="new">5.76 MB<span class="pct">−44%</span></span></span>
+              <span class="bar" style="--ratio: .56" aria-hidden="true"><span></span></span>
+              <span class="note ok"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>すべての画素が元と一致することを確認</span>
+            </li>
+            <li class="file">
+              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <span class="name">IMG_2042.heic</span>
+              <span class="size">3.08 MB</span>
+              <span class="bar" style="--ratio: 1" aria-hidden="true"><span></span></span>
+              <span class="note"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>劣化なしでは変換できない形式なので、元のまま</span>
+            </li>
+          </ul>
+          <div class="status"><span>3 項目</span><span id="folder-status">待機中、CPU 使用率 0%</span></div>
+        </div>
+        <figcaption>JPEG と PNG のサイズは 4K 写真での実測値 (圧縮の強さ 7)</figcaption>
+      </figure>
     </div>
-  </section>
+  </div>
+</header>
 
-  <section id="spec">
-    <h2>変換の仕様</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><th>元の形式</th><th>変換方法</th><th>元ファイルを消す前の検証</th></tr>
-        <tr><td>JPEG</td><td>JPEG のロスレス再圧縮 (EXIF・XMP・ICC も保持)</td><td>JPEG XL から復元した JPEG が元ファイルと<strong>バイト単位で一致</strong>すること</td></tr>
-        <tr><td>PNG / TIFF / BMP / ロスレス WebP</td><td>完全ロスレス。色空間・16 bit・透過・向き・EXIF / XMP を保持</td><td>デコードした画素が元と<strong>完全に一致</strong>すること</td></tr>
-        <tr><td>HEIC / 非可逆 WebP / RAW など</td><td colspan="2">変換しません (劣化なしで変換できないため、元のまま残します)</td></tr>
-      </table>
-    </div>
-    <div class="warn">
-      <strong>元の写真は既定で削除されます。</strong>
-      上の検証に成功し、元ファイルが変換中に変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも <code>optimize-image-folder restore &lt;ファイルまたはフォルダ&gt;</code> で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。
-    </div>
-    <h3>4K 写真での実測値 (Apple Silicon)</h3>
-    <div class="table-wrap">
-      <table>
-        <tr><th>元のファイル</th><th>JPEG XL</th><th>時間</th></tr>
-        <tr><td>JPEG 2.29 MB</td><td>1.85 MB (-19%)</td><td>1.9 秒</td></tr>
-        <tr><td>PNG 10.3 MB (圧縮の強さ 3)</td><td>6.87 MB (-33%)</td><td>6.6 秒</td></tr>
-        <tr><td>PNG 10.3 MB (圧縮の強さ 7、既定)</td><td>5.76 MB (-44%)</td><td>28 秒</td></tr>
-      </table>
-    </div>
-    <p class="small">変換は低優先度の子プロセスで行うので、時間がかかっても作業の邪魔になりません。「圧縮の強さ」で変わるのはサイズと時間だけで、画質は常に元と同じです。</p>
-  </section>
+<div class="wrap body">
+  <nav class="toc" aria-label="目次">
+    <ol>
+      <li><a href="#install">インストール</a></li>
+      <li><a href="#viewer">JPEG XL を表示するには</a></li>
+      <li><a href="#spec">変換の仕様</a></li>
+      <li><a href="#how">待っている間と変換中</a></li>
+      <li><a href="#usage">使い方</a></li>
+      <li><a href="#downloads">ダウンロード</a></li>
+      <li><a href="#uninstall">アンインストール</a></li>
+    </ol>
+  </nav>
 
-  <section id="features">
-    <h2>特徴</h2>
-    <div class="features">
-      <div class="feature">
-        <h3>待機中はリソースを使わない</h3>
-        <p>macOS では、フォルダが変わったときだけ launchd がプロセスを起動し、終われば終了します。Windows では、1 本のスレッドが I/O 完了ポートで眠るだけです。</p>
+  <main>
+    <section id="install">
+      <h2>インストール</h2>
+      <div class="tabs" role="tablist" aria-label="OS">
+        <button class="tab" type="button" role="tab" id="tab-mac" aria-controls="p-mac" aria-selected="true" data-os-target="mac">macOS</button>
+        <button class="tab" type="button" role="tab" id="tab-win" aria-controls="p-win" aria-selected="false" tabindex="-1" data-os-target="win">Windows</button>
       </div>
-      <div class="feature">
-        <h3>設定画面</h3>
-        <p>圧縮の強さ、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</p>
-      </div>
-      <div class="feature">
-        <h3>OS のネイティブ API</h3>
-        <p>Rust から FSEvents・launchd・ImageIO・AppKit (macOS)、ReadDirectoryChangesW・IOCP・WIC・Win32 (Windows) を直接呼び出します。</p>
-      </div>
-      <div class="feature">
-        <h3>変換は使い捨てプロセスで</h3>
-        <p>必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。メモリはすべて OS に返されます。</p>
-      </div>
-      <div class="feature">
-        <h3>安全な置き換え</h3>
-        <p>検証 → 一時ファイルに書いて fsync → rename → 元ファイルが変わっていないか確認、の順に進め、日時や Finder タグも引き継ぎます。</p>
-      </div>
-      <div class="feature">
-        <h3>公式の JPEG XL 実装</h3>
-        <p>エンコードは libjxl 0.13、検証は jxl-rs (どちらも libjxl プロジェクト、BSD-3-Clause) を使います。</p>
-      </div>
-    </div>
-  </section>
 
-  <section id="usage">
-    <h2>使い方</h2>
-    <div class="table-wrap">
-      <table>
-        <tr><th>コマンド</th><th>内容</th></tr>
-        <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--yes</code>)</td></tr>
-        <tr><td><code>settings</code></td><td>設定画面を開きます</td></tr>
-        <tr><td><code>status</code></td><td>状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
-        <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
-        <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
-        <tr><td><code>start</code> / <code>stop</code> / <code>restart</code></td><td>監視の開始・停止・再起動</td></tr>
-        <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
-      </table>
-    </div>
-    <p class="small">Windows ではインストーラーがコマンドを PATH に追加します (<code>%LOCALAPPDATA%\Programs\OptimizeImageFolder</code>)。新しいターミナルから使えます。</p>
-  </section>
+      <div class="panel" id="p-mac" role="tabpanel" aria-labelledby="tab-mac">
+        <h3>Homebrew (おすすめ)</h3>
+        <div class="cmd"><pre><code>brew install tsubasatommy/tap/optimize-image-folder
+optimize-image-folder install</code></pre></div>
+        <p><code>install</code> で、変換するフォルダ (既定は <code>~/Pictures</code>。写真ライブラリの中身は対象外)、元ファイルの扱い、既存の写真も変換するかを聞かれます。設定画面は <code>optimize-image-folder settings</code> か <code>~/Applications/Optimize Image Folder.app</code> で開けます。</p>
+        <h3>Homebrew を使わない場合</h3>
+        <div class="cmd"><pre><code>curl -fsSL https://tsubasatommy.github.io/optimize-image-folder/install.sh | sh</code></pre></div>
+        <p class="small">最新リリースをダウンロードし、SHA256 を確かめてから <code>~/.local/bin</code> に置きます。</p>
+      </div>
 
-  <section id="other">
-    <h2>そのほかのダウンロード</h2>
-    <div class="downloads">
-      <a class="dl" data-os="mac" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-macos-universal.tar.gz">
-        <span class="os">macOS</span>
-        <span class="arch">Apple Silicon / Intel (Universal)</span>
-        <span class="file">⬇ .tar.gz</span>
-      </a>
-      <a class="dl" data-os="win-x64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-x64.zip">
-        <span class="os">Windows (ポータブル)</span>
-        <span class="arch">x64 (Intel / AMD)</span>
-        <span class="file">⬇ .zip</span>
-      </a>
-      <a class="dl" data-os="win-arm64" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-arm64.zip">
-        <span class="os">Windows (ポータブル)</span>
-        <span class="arch">ARM64 (Snapdragon など)</span>
-        <span class="file">⬇ .zip</span>
-      </a>
-    </div>
-    <p class="small">
-      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest">リリースノート</a> ·
-      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> ·
-      <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases">すべてのバージョン</a> ·
-      <a href="https://github.com/TsubasaTommy/optimize-image-folder">ソースコード</a>
-    </p>
-  </section>
+      <div class="panel" id="p-win" role="tabpanel" aria-labelledby="tab-win" hidden>
+        <h3>インストーラー</h3>
+        <a class="download" href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe">Setup.exe をダウンロード</a>
+        <p>x64 と ARM64 の両方に対応し、管理者権限は要りません。インストール中に、元ファイルの扱いと既存の写真も変換するかを選びます。設定画面はスタートメニューの「Optimize Image Folder」から開けます。</p>
+        <p class="small">インストーラーにはコード署名をしていません (証明書が有料のため)。ブラウザでダウンロードすると SmartScreen の警告が出ることがあります。その場合は <a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a> でハッシュを確かめてから、「詳細情報」を押して「実行」を選んでください。下の PowerShell や winget で入れると警告は出ません。</p>
+        <h3>PowerShell から入れる場合</h3>
+        <div class="cmd"><pre><code>irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex</code></pre></div>
+        <p class="small">最新の Setup.exe をダウンロードし、SHA256 を確かめてから起動します。</p>
+        <h3>winget</h3>
+        <div class="cmd"><pre><code>winget install TsubasaTommy.OptimizeImageFolder</code></pre></div>
+        <p class="small">winget への登録は Microsoft の審査中です (<a href="https://github.com/microsoft/winget-pkgs/pull/486181">winget-pkgs #486181</a>)。見つからない場合は、上のインストーラーか PowerShell で入れてください。</p>
+        <p class="small">Windows ではインストーラーがコマンドを PATH に追加します (<code>%LOCALAPPDATA%\Programs\OptimizeImageFolder</code>)。新しいターミナルから使えます。</p>
+      </div>
+    </section>
 
-  <section id="uninstall">
-    <h2>アンインストール</h2>
-    <p><strong>macOS:</strong></p>
-    <div class="cmd"><pre><code>optimize-image-folder uninstall --purge
+    <section id="viewer">
+      <h2>JPEG XL を表示するには</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">OS</th><th scope="col">表示のしかた</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">macOS 14 以降</th><td>そのまま表示できます (Finder、プレビュー、写真)。</td></tr>
+            <tr><th scope="row">Windows 11 24H2 以降</th><td>Microsoft 公式の無料拡張「<a href="https://apps.microsoft.com/detail/9MZPRTH5C0TB">JPEG XL Image Extension</a>」を入れると、エクスプローラーやフォトで表示できます。<strong>インストーラーがこの拡張も一緒に入れます</strong> (チェックを外せば入れません)。</td></tr>
+            <tr><th scope="row">それ以前の OS</th><td>変換はされますが、標準のアプリでは表示できません。<code>restore</code> でいつでも元に戻せます。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>拡張をあとから入れる場合は、設定画面の「拡張機能をインストール」を押すか、次を実行します。</p>
+      <div class="cmd"><pre><code>winget install --id 9MZPRTH5C0TB --source msstore</code></pre></div>
+    </section>
+
+    <section id="spec">
+      <h2>変換の仕様</h2>
+      <div class="table-wrap">
+        <table class="stack">
+          <thead><tr><th scope="col">元の形式</th><th scope="col">変換のしかた</th><th scope="col">元ファイルを消す前の確認</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">JPEG</th><td data-label="変換のしかた">JPEG のロスレス再圧縮。EXIF、XMP、ICC も保持</td><td data-label="消す前の確認">JPEG XL から復元した JPEG が、元ファイルと<strong>バイト単位で一致</strong>すること</td></tr>
+            <tr><th scope="row">PNG、TIFF、BMP、ロスレス WebP</th><td data-label="変換のしかた">完全ロスレス。色空間、16 bit、透過、向き、EXIF / XMP を保持</td><td data-label="消す前の確認">デコードした画素が、元と<strong>完全に一致</strong>すること</td></tr>
+            <tr><th scope="row">HEIC、非可逆 WebP、RAW など</th><td colspan="2" data-label="変換のしかた">変換しません。劣化なしでは変換できないため、元のまま残します</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="warn">
+        <p><strong>元の写真は、既定では削除されます。</strong>上の確認に成功し、変換中に元ファイルが変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも <code>optimize-image-folder restore &lt;ファイルまたはフォルダ&gt;</code> で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。</p>
+      </div>
+      <h3>4K 写真での実測値 (Apple Silicon)</h3>
+      <div class="table-wrap">
+        <table class="stack">
+          <thead><tr><th scope="col">元のファイル</th><th scope="col">JPEG XL</th><th scope="col">時間</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">JPEG 2.29 MB</th><td class="num" data-label="JPEG XL">1.85 MB (−19%)</td><td class="num" data-label="時間">1.9 秒</td></tr>
+            <tr><th scope="row">PNG 10.3 MB、圧縮の強さ 3</th><td class="num" data-label="JPEG XL">6.87 MB (−33%)</td><td class="num" data-label="時間">6.6 秒</td></tr>
+            <tr><th scope="row">PNG 10.3 MB、圧縮の強さ 7 (既定)</th><td class="num" data-label="JPEG XL">5.76 MB (−44%)</td><td class="num" data-label="時間">28 秒</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">「圧縮の強さ」で変わるのはサイズと時間だけで、画質は常に元と同じです。変換は低優先度の子プロセスで行うので、時間がかかっても作業の邪魔になりません。</p>
+    </section>
+
+    <section id="how">
+      <h2>待っている間と変換中</h2>
+      <div class="table-wrap">
+        <table class="stack">
+          <thead><tr><th scope="col">待機中の実測値</th><th scope="col">CPU 時間</th><th scope="col">スレッド</th><th scope="col">専有メモリ</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">macOS</th><td colspan="3" data-label="待機中">プロセス自体がありません</td></tr>
+            <tr><th scope="row">Windows x64</th><td class="num" data-label="CPU 時間">30 秒間で 0 ms</td><td class="num" data-label="スレッド">1 本</td><td class="num" data-label="専有メモリ">2.3 MB</td></tr>
+            <tr><th scope="row">Windows ARM64</th><td class="num" data-label="CPU 時間">30 秒間で 0 ms</td><td class="num" data-label="スレッド">2 本</td><td class="num" data-label="専有メモリ">2.8 MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <dl class="how">
+        <dt>待っている間はリソースを使わない</dt>
+        <dd>macOS では、フォルダが変わったときだけ launchd がプロセスを起動し、変換が終われば終了します。Windows では、1 本のスレッドが I/O 完了ポートで眠るだけです。</dd>
+        <dt>変換は使い捨てのプロセスで</dt>
+        <dd>必要なときだけ低優先度 (Background QoS / EcoQoS) の子プロセスを起動し、終わったら終了します。使ったメモリはすべて OS に返されます。</dd>
+        <dt>安全な置き換え</dt>
+        <dd>確認、一時ファイルへの書き込みと fsync、rename、元ファイルが変わっていないかの確認、の順に進めます。日時や Finder タグも引き継ぎます。</dd>
+        <dt>設定画面</dt>
+        <dd>圧縮の強さ、変換するフォルダ、除外するフォルダを設定できます。開いている間だけ動く別プロセスなので、常駐はしません。</dd>
+        <dt>OS のネイティブ API</dt>
+        <dd>Rust から FSEvents、launchd、ImageIO、AppKit (macOS)、ReadDirectoryChangesW、IOCP、WIC、Win32 (Windows) を直接呼び出します。</dd>
+        <dt>公式の JPEG XL 実装</dt>
+        <dd>エンコードは libjxl 0.13、確認には jxl-rs を使います (どちらも libjxl プロジェクト、BSD-3-Clause)。</dd>
+      </dl>
+    </section>
+
+    <section id="usage">
+      <h2>使い方</h2>
+      <div class="table-wrap">
+        <table class="cmds stack">
+          <thead><tr><th scope="col">コマンド</th><th scope="col">内容</th></tr></thead>
+          <tbody>
+            <tr><td><code>install</code></td><td>設定を作り、自動起動に登録します (<code>--folder</code> <code>--exclude</code> <code>--new-only</code> <code>--scan-existing</code> <code>--original delete|trash|keep</code> <code>--effort 1-9</code> <code>--yes</code>)</td></tr>
+            <tr><td><code>settings</code></td><td>設定画面を開きます</td></tr>
+            <tr><td><code>status</code></td><td>状態、設定、監視フォルダにアクセスできるか、最近のログを表示します</td></tr>
+            <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ)</td></tr>
+            <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
+            <tr><td><code>start</code> <code>stop</code> <code>restart</code></td><td>監視を開始、停止、再起動します</td></tr>
+            <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="downloads">
+      <h2>ダウンロード</h2>
+      <div class="table-wrap">
+        <table class="stack">
+          <thead><tr><th scope="col">ファイル</th><th scope="col">内容</th></tr></thead>
+          <tbody>
+            <tr><td><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/OptimizeImageFolder-Setup.exe">OptimizeImageFolder-Setup.exe</a></td><td>Windows のインストーラー (x64 / ARM64)</td></tr>
+            <tr><td><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-macos-universal.tar.gz">optimize-image-folder-macos-universal.tar.gz</a></td><td>macOS (Apple Silicon / Intel)</td></tr>
+            <tr><td><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-x64.zip">optimize-image-folder-windows-x64.zip</a></td><td>Windows のポータブル版 (Intel / AMD)</td></tr>
+            <tr><td><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/optimize-image-folder-windows-arm64.zip">optimize-image-folder-windows-arm64.zip</a></td><td>Windows のポータブル版 (Snapdragon など ARM64)</td></tr>
+            <tr><td><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest/download/SHA256SUMS.txt">SHA256SUMS.txt</a></td><td>上のファイルの SHA256</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="links">
+        <li><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases/latest">リリースノート</a></li>
+        <li><a href="https://github.com/TsubasaTommy/optimize-image-folder/releases">すべてのバージョン</a></li>
+        <li><a href="https://github.com/TsubasaTommy/optimize-image-folder">ソースコード</a></li>
+      </ul>
+    </section>
+
+    <section id="uninstall">
+      <h2>アンインストール</h2>
+      <h3>macOS</h3>
+      <div class="cmd"><pre><code>optimize-image-folder uninstall --purge
 brew uninstall optimize-image-folder</code></pre></div>
-    <p><strong>Windows:</strong> 「設定」→「アプリ」から「Optimize Image Folder」をアンインストールするか、次を実行します。</p>
-    <div class="cmd"><pre><code>winget uninstall TsubasaTommy.OptimizeImageFolder</code></pre></div>
-    <p class="small">変換済みの JPEG XL はそのまま残ります。元に戻したい場合は、アンインストールの前に <code>restore</code> を実行してください。</p>
-  </section>
+      <h3>Windows</h3>
+      <p>「設定」の「アプリ」から「Optimize Image Folder」をアンインストールするか、次を実行します。</p>
+      <div class="cmd"><pre><code>winget uninstall TsubasaTommy.OptimizeImageFolder</code></pre></div>
+      <p class="small">変換済みの JPEG XL はそのまま残ります。元に戻したい場合は、アンインストールの前に <code>restore</code> を実行してください。</p>
+    </section>
+  </main>
+</div>
 
-  <footer>
-    <span>optimize-image-folder · MIT License · 同梱ライブラリのライセンスは THIRD_PARTY_LICENSES.txt</span>
+<footer>
+  <div class="wrap">
+    <span>MIT License。同梱ライブラリのライセンスは <a href="https://github.com/TsubasaTommy/optimize-image-folder/blob/main/THIRD_PARTY_LICENSES.txt">THIRD_PARTY_LICENSES.txt</a> にあります。</span>
     <a href="https://github.com/TsubasaTommy/optimize-image-folder">GitHub</a>
-  </footer>
-</main>
+  </div>
+</footer>
+
 <script>
   // Copy buttons
   document.querySelectorAll(".cmd").forEach(function (box) {
@@ -302,31 +550,62 @@ brew uninstall optimize-image-folder</code></pre></div>
     btn.textContent = "コピー";
     btn.addEventListener("click", function () {
       var text = box.querySelector("code").innerText;
-      var done = function () { btn.textContent = "コピーしました"; setTimeout(function () { btn.textContent = "コピー"; }, 1500); };
-      if (navigator.clipboard) { navigator.clipboard.writeText(text).then(done, function () {}); }
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = "コピーしました";
+        setTimeout(function () { btn.textContent = "コピー"; }, 1500);
+      }, function () {});
     });
     box.appendChild(btn);
   });
 
-  // Tabs
-  var tabs = document.querySelectorAll(".tab");
-  function select(id) {
+  // One switch drives both the hero and the install tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  function selectOS(os) {
+    document.querySelectorAll(".cta").forEach(function (el) { el.hidden = el.dataset.os !== os; });
+    document.querySelectorAll(".os-switch button").forEach(function (b) { b.hidden = b.dataset.osTarget === os; });
     tabs.forEach(function (t) {
-      var on = t.dataset.panel === id;
+      var on = t.dataset.osTarget === os;
       t.setAttribute("aria-selected", on ? "true" : "false");
-      document.getElementById(t.dataset.panel).hidden = !on;
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
     });
   }
-  tabs.forEach(function (t) { t.addEventListener("click", function () { select(t.dataset.panel); }); });
-
-  // Show the instructions for this visitor's OS
-  if (/Windows/.test(navigator.userAgent)) select("p-win");
+  document.querySelectorAll("[data-os-target]").forEach(function (b) {
+    b.addEventListener("click", function () { selectOS(b.dataset.osTarget); });
+  });
+  tabs.forEach(function (t, i) {
+    t.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      var next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      selectOS(next.dataset.osTarget);
+      next.focus();
+    });
+  });
+  if (/Windows/.test(navigator.userAgent)) selectOS("win");
 
   // Latest version (optional; links work without it)
   fetch("https://api.github.com/repos/TsubasaTommy/optimize-image-folder/releases/latest")
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (j) { if (j && j.tag_name) document.getElementById("version").textContent = j.tag_name; })
     .catch(function () {});
+
+  // The folder converts once on load. Without JS or with reduced motion it shows the result.
+  (function () {
+    if (!document.documentElement.classList.contains("anim")) return;
+    var rows = Array.prototype.slice.call(document.querySelectorAll(".file"));
+    var status = document.getElementById("folder-status");
+    var idle = status.textContent;
+    status.textContent = "新しい写真を検出";
+    var t = 800;
+    rows.forEach(function (r) {
+      setTimeout(function () { r.classList.add("is-working"); status.textContent = "変換中 (低優先度)"; }, t);
+      t += 1000;
+      setTimeout(function () { r.classList.remove("is-working"); r.classList.add("is-done"); }, t);
+      t += 300;
+    });
+    setTimeout(function () { status.textContent = idle; }, t);
+  })();
 </script>
 </body>
 </html>

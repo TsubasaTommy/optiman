@@ -164,6 +164,13 @@ unsafe extern "C" {
     ) -> *mut JxlEncoderFrameSettings;
     pub fn JxlEncoderFrameSettingsSetOption(settings: *mut JxlEncoderFrameSettings, option: i32, value: i64) -> i32;
     pub fn JxlEncoderSetFrameLossless(settings: *mut JxlEncoderFrameSettings, lossless: JXL_BOOL) -> i32;
+    pub fn JxlEncoderSetFrameDistance(settings: *mut JxlEncoderFrameSettings, distance: f32) -> i32;
+    pub fn JxlEncoderSetExtraChannelDistance(
+        settings: *mut JxlEncoderFrameSettings,
+        index: usize,
+        distance: f32,
+    ) -> i32;
+    pub fn JxlEncoderDistanceFromQuality(quality: f32) -> f32;
     pub fn JxlEncoderAddJPEGFrame(settings: *const JxlEncoderFrameSettings, buffer: *const u8, size: usize) -> i32;
     pub fn JxlEncoderAddImageFrame(
         settings: *const JxlEncoderFrameSettings,

@@ -101,9 +101,18 @@ pub struct InstallArgs {
     /// 変換後の元ファイルの扱い
     #[arg(long, value_enum)]
     pub original: Option<OriginalPolicy>,
-    /// 圧縮の強さ 1-9 (画質は常に劣化なし)
+    /// 圧縮の強さ 1-9 (変わるのはサイズと時間だけ)
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
     pub effort: Option<u8>,
+    /// PNG・TIFF・BMP・ロスレス WebP を非可逆で圧縮する (JPEG は常に劣化なし)
+    #[arg(long, conflicts_with = "lossless")]
+    pub lossy: bool,
+    /// 劣化なしに戻す (既定)
+    #[arg(long)]
+    pub lossless: bool,
+    /// 非可逆の品質 60-95 (既定 90)
+    #[arg(long, value_parser = clap::value_parser!(u8).range(60..=95))]
+    pub quality: Option<u8>,
     /// 確認なしで進める
     #[arg(long, short = 'y')]
     pub yes: bool,
@@ -126,6 +135,15 @@ pub struct ConvertArgs {
     /// 圧縮の強さ 1-9
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=9))]
     pub effort: Option<u8>,
+    /// PNG・TIFF・BMP・ロスレス WebP を非可逆で圧縮する (JPEG は常に劣化なし)
+    #[arg(long, conflicts_with = "lossless")]
+    pub lossy: bool,
+    /// 劣化なしに戻す (既定)
+    #[arg(long)]
+    pub lossless: bool,
+    /// 非可逆の品質 60-95 (既定 90)
+    #[arg(long, value_parser = clap::value_parser!(u8).range(60..=95))]
+    pub quality: Option<u8>,
     /// 何が変換されるか表示するだけ
     #[arg(long)]
     pub dry_run: bool,
@@ -154,6 +172,20 @@ pub struct WorkerArgs {
     pub original: OriginalPolicy,
     #[arg(long, action = clap::ArgAction::Set)]
     pub skip_if_larger: bool,
+    #[arg(long)]
+    pub quality: Option<u8>,
+}
+
+/// Applies `--lossy` / `--lossless` / `--quality` to a config.
+fn apply_mode(cfg: &mut Config, lossy: bool, lossless: bool, quality: Option<u8>) {
+    if lossy {
+        cfg.lossy = true;
+    } else if lossless {
+        cfg.lossy = false;
+    }
+    if let Some(q) = quality {
+        cfg.quality = q;
+    }
 }
 
 pub fn main() -> i32 {
@@ -182,6 +214,7 @@ pub fn main() -> i32 {
         Command::Worker(args) => {
             let ctx = ConvertCtx {
                 effort: args.effort,
+                quality: args.quality,
                 threads: args.threads.max(1),
                 original: args.original,
                 skip_if_larger: args.skip_if_larger,
@@ -356,6 +389,7 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     if let Some(e) = args.effort {
         cfg.effort = e;
     }
+    apply_mode(&mut cfg, args.lossy, args.lossless, args.quality);
     cfg.validate()?;
 
     if cfg.scan_existing {
@@ -374,7 +408,8 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
             && !args.yes
             && !prompt.confirm(
                 &format!(
-                    "劣化なしで JPEG XL に変換し、検証に成功した元ファイルを「{}」します。よろしいですか?",
+                    "JPEG XL に変換し (画質: {})、検証に成功した元ファイルを「{}」します。よろしいですか?",
+                    app::mode_label(&cfg),
                     cfg.original.describe()
                 ),
                 false,
@@ -392,8 +427,9 @@ fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     app::register_agent(config_path, &cfg, !args.no_start)?;
     println!("自動起動に登録しました ({})", autostart::describe());
     println!(
-        "監視: {}  / 圧縮の強さ: {}  / 元ファイル: {}  / 既存の写真: {}",
+        "監視: {}  / 画質: {}  / 圧縮の強さ: {}  / 元ファイル: {}  / 既存の写真: {}",
         cfg.folders.join(", "),
+        app::mode_label(&cfg),
         app::effort_label(cfg.effort),
         cfg.original.describe(),
         if cfg.scan_existing { "変換する" } else { "新規のみ" }
@@ -462,7 +498,8 @@ fn status(config_path: &Path) -> Result<()> {
     match Config::load(config_path) {
         Ok(cfg) => {
             println!(
-                "圧縮の強さ: {} / 元ファイル: {} / 既存の写真: {}",
+                "画質: {} / 圧縮の強さ: {} / 元ファイル: {} / 既存の写真: {}",
+                app::mode_label(&cfg),
                 app::effort_label(cfg.effort),
                 cfg.original.describe(),
                 if cfg.scan_existing { "変換する" } else { "新規のみ" }
@@ -515,6 +552,7 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     if let Some(e) = args.effort {
         cfg.effort = e;
     }
+    apply_mode(&mut cfg, args.lossy, args.lossless, args.quality);
     cfg.validate()?;
     let filter = Filter::new(&cfg);
     let mut files = Vec::new();
@@ -541,8 +579,9 @@ fn convert(config_path: &Path, args: ConvertArgs) -> Result<()> {
     ctx.threads = (default_threads() * 2 / jobs).max(1); // user-initiated: use the whole machine
     ctx.dry_run = args.dry_run;
     println!(
-        "{} 件 / JPEG XL (劣化なし) / 圧縮の強さ: {} / 元ファイル: {}{}",
+        "{} 件 / 画質: {} / 圧縮の強さ: {} / 元ファイル: {}{}",
         files.len(),
+        app::mode_label(&cfg),
         app::effort_label(cfg.effort),
         cfg.original.describe(),
         if args.dry_run { " (dry run)" } else { "" }

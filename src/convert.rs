@@ -1,7 +1,7 @@
 //! Converting a single photo to JPEG XL, with the checks that make deleting the original safe:
 //! encode in memory → verify (JPEG: rebuilt file is byte-identical; others: decoded pixels are
-//! identical) → hidden temp file → fsync → rename → re-check the source → only then apply the
-//! original-file policy.
+//! identical, or close to the source in the optional lossy mode) → hidden temp file → fsync →
+//! rename → re-check the source → only then apply the original-file policy.
 
 use std::fs::{self, File};
 use std::io::Write;
@@ -22,6 +22,8 @@ pub const OUTPUT_EXTENSION: &str = "jxl";
 #[derive(Debug, Clone)]
 pub struct ConvertCtx {
     pub effort: u8,
+    /// `Some(quality)`: encode non-JPEG sources lossily. JPEG is always lossless.
+    pub quality: Option<u8>,
     pub threads: usize,
     pub original: OriginalPolicy,
     pub skip_if_larger: bool,
@@ -37,6 +39,7 @@ impl ConvertCtx {
     pub fn new(cfg: &Config) -> ConvertCtx {
         ConvertCtx {
             effort: cfg.effort,
+            quality: cfg.lossy.then_some(cfg.quality),
             threads: default_threads(),
             original: cfg.original,
             skip_if_larger: cfg.skip_if_larger,
@@ -45,7 +48,7 @@ impl ConvertCtx {
     }
 
     fn options(&self) -> EncodeOptions {
-        EncodeOptions { effort: self.effort, threads: self.threads }
+        EncodeOptions { effort: self.effort, threads: self.threads, quality: self.quality }
     }
 }
 
@@ -180,7 +183,7 @@ fn same_file_state(a: &fs::Metadata, b: &fs::Metadata) -> bool {
     a.len() == b.len() && a.modified().ok() == b.modified().ok()
 }
 
-/// Encodes in memory and proves the result is lossless. Returns the JPEG XL bytes.
+/// Encodes in memory and verifies the result (lossless, or close in lossy mode). Returns the bytes.
 fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<Vec<u8>, Outcome> {
     let size = data.len() as u64;
     let too_big = |jxl: &[u8]| {
@@ -195,8 +198,12 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
         EncodeError::Unsupported(m) => Outcome::skipped(m, fp),
         EncodeError::Failed(m) => Outcome::failed(m),
     };
-    let verify_err =
-        |m: String| Outcome::Failed { reason: format!("劣化なしの検証に失敗: {m}"), remember: Some(fp) };
+    let verify_err = |lossy: bool| {
+        move |m: String| {
+            let what = if lossy { "非可逆変換の検証に失敗" } else { "劣化なしの検証に失敗" };
+            Outcome::Failed { reason: format!("{what}: {m}"), remember: Some(fp) }
+        }
+    };
 
     if let Some(reason) = metadata::lossy_extras(&data) {
         return Err(Outcome::skipped(reason, fp));
@@ -207,7 +214,7 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             if let Some(skip) = too_big(&jxl) {
                 return Err(skip);
             }
-            jxl::verify_jpeg(&jxl, &data).map_err(verify_err)?;
+            jxl::verify_jpeg(&jxl, &data).map_err(verify_err(false))?;
             Ok(jxl)
         }
         Container::Heif => Err(Outcome::skipped("HEIC/HEIF は対象外です (非可逆形式)", fp)),
@@ -223,11 +230,23 @@ fn encode_verified(ctx: &ConvertCtx, data: Vec<u8>, fp: Fingerprint) -> Result<V
             };
             let img: SourceImage = platform::image::decode(&data).map_err(encode_err)?;
             drop(data);
-            let jxl = jxl::encode_lossless(&img, &meta, &ctx.options()).map_err(encode_err)?;
+            let mut jxl = jxl::encode_pixels(&img, &meta, &ctx.options()).map_err(encode_err)?;
+            let mut lossy = ctx.quality.is_some();
+            if lossy && jxl.len() as u64 >= size {
+                // Flat images (graphics, gradients) can come out larger lossy than the source;
+                // lossless is then both smaller and exact.
+                let lossless = EncodeOptions { quality: None, ..ctx.options() };
+                jxl = jxl::encode_pixels(&img, &meta, &lossless).map_err(encode_err)?;
+                lossy = false;
+            }
             if let Some(skip) = too_big(&jxl) {
                 return Err(skip);
             }
-            jxl::verify_lossless(&jxl, &img).map_err(verify_err)?;
+            if lossy {
+                jxl::verify_lossy(&jxl, &img).map_err(verify_err(true))?;
+            } else {
+                jxl::verify_lossless(&jxl, &img).map_err(verify_err(false))?;
+            }
             Ok(jxl)
         }
     }

@@ -5,7 +5,7 @@
 
 # Optiman
 
-写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する macOS / Windows 用ツールです。JPEG は元のファイルにいつでも戻せる形のまま約 2 割、PNG は約 3〜4 割小さくなります。待っている間は CPU を使いません。
+写真フォルダに追加された写真を、画質を一切変えずに JPEG XL へ変換する macOS / Windows 用ツールです。JPEG は元のファイルにいつでも戻せる形のまま約 2 割、PNG は約 3〜4 割小さくなります。さらに小さくしたい場合は、PNG などを非可逆で圧縮するオプションもあります。待っている間は CPU を使いません。
 
 ダウンロードと手順は [配布ページ](https://tsubasatommy.github.io/optiman/) に、過去の版は [リリース](https://github.com/TsubasaTommy/optiman/releases) にあります。
 
@@ -83,6 +83,20 @@ winget install --id 9MZPRTH5C0TB --source msstore
 | PNG 10.3 MB、圧縮の強さ 3 | 6.87 MB (−33%) | 6.6 秒 |
 | PNG 10.3 MB、圧縮の強さ 7 (既定) | 5.76 MB (−44%) | 28 秒 |
 
+### 非可逆圧縮 (オプション)
+
+設定画面の「非可逆で圧縮する」をオンにするか、`install` / `convert` に `--lossy` を付けると、PNG、TIFF、BMP、ロスレス WebP を非可逆の JPEG XL にします。品質は 60〜95 で選べます (既定 90。90 で見た目ではほぼ区別できません)。
+
+- JPEG はこのモードでも、元の JPEG にバイト単位で戻せるロスレス再圧縮のままです。HEIC と非可逆 WebP も変換しません。
+- 元の画素とは一致しなくなるので、元ファイルを消す前の確認は「デコードできて、元の画像と大きく違わないこと」(PSNR 20 dB 以上、色の平均値のずれ 2% 以内) に変わります。
+- `restore` で戻せるのは非可逆で圧縮したあとの画素 (PNG) です。元の画質には戻せません。
+- 非可逆にしても元ファイルより小さくならない画像 (単色に近い図など) は、ロスレスで保存します。
+
+| 4K の PNG | ロスレス | 品質 90 (非可逆) | 品質 60 (非可逆) |
+|---|---|---|---|
+| 写真 11.3 MB | 5.56 MB | 1.06 MB (−91%) | 0.42 MB (−96%) |
+| 動画のフレーム 10.3 MB | 5.76 MB | 3.62 MB (−65%) | 1.68 MB (−84%) |
+
 ## 待っている間と変換中
 
 | 待機中の実測値 | CPU 時間 | スレッド | 専有メモリ |
@@ -122,10 +136,10 @@ CI では、macOS と Windows の両方で、待機中に CPU 時間が増えな
 
 | コマンド | 内容 |
 |---|---|
-| `install` | 設定を作り、自動起動に登録します (`--folder` `--exclude` `--new-only` `--scan-existing` `--original delete\|trash\|keep` `--effort 1-9` `--yes`) |
-| `settings` | 設定画面を開きます (圧縮の強さ、変換するフォルダ、除外するフォルダ) |
+| `install` | 設定を作り、自動起動に登録します (`--folder` `--exclude` `--new-only` `--scan-existing` `--original delete\|trash\|keep` `--effort 1-9` `--lossy` `--lossless` `--quality 60-95` `--yes`) |
+| `settings` | 設定画面を開きます (圧縮の強さ、非可逆圧縮と品質、変換するフォルダ、除外するフォルダ) |
 | `status` | 状態、設定、監視フォルダにアクセスできるか、最近のログを表示します |
-| `convert <パス>...` | ファイルやフォルダを今すぐ変換します (`--dry-run` で確認だけ。ほかに `--original` `--effort` `-j`) |
+| `convert <パス>...` | ファイルやフォルダを今すぐ変換します (`--dry-run` で確認だけ。ほかに `--original` `--effort` `--lossy` `--quality` `-j`) |
 | `restore <パス>...` | JPEG XL から元のファイルを復元します (`--delete-jxl` で、復元できた .jxl を削除) |
 | `start` `stop` `restart` | 監視を開始、停止、再起動します (設定ファイルを手で編集したとき) |
 | `config` | 設定ファイルの場所と内容を表示します |
@@ -141,7 +155,9 @@ CI では、macOS と Windows の両方で、待機中に CPU 時間が増えな
 ```toml
 folders = ["~/Pictures"]   # 変換するフォルダ (サブフォルダも対象)
 exclude_folders = []       # 変換しないフォルダ
-effort = 7                 # 圧縮の強さ 1 (速い) - 9 (小さい)。画質は常に劣化なし
+effort = 7                 # 圧縮の強さ 1 (速い) - 9 (小さい)。変わるのはサイズと時間だけ
+lossy = false              # true で PNG、TIFF、BMP、ロスレス WebP を非可逆に (JPEG は常に劣化なし)
+quality = 90               # lossy のときの品質 60 - 95
 original = "delete"        # delete | trash | keep
 scan_existing = false      # 起動時に既存の写真も変換するか
 jobs = 0                   # 同時変換数 (0 = 自動)

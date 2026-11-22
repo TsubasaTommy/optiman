@@ -140,13 +140,16 @@ impl WorkerSpec {
             OriginalPolicy::Trash => "trash",
             OriginalPolicy::Keep => "keep",
         };
-        let args = [
+        let mut args = vec![
             "worker".to_string(),
             format!("--effort={}", ctx.effort),
             format!("--threads={}", ctx.threads),
             format!("--original={policy}"),
             format!("--skip-if-larger={}", ctx.skip_if_larger),
         ];
+        if let Some(q) = ctx.quality {
+            args.push(format!("--quality={q}"));
+        }
         Some(WorkerSpec { exe, args: args.into_iter().map(OsString::from).collect() })
     }
 }

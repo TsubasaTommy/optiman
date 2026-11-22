@@ -319,7 +319,7 @@ impl Prompt {
 fn install(config_path: &Path, args: InstallArgs) -> Result<()> {
     let mut cfg = Config::load(config_path).unwrap_or_default();
     let mut prompt = Prompt::open(args.yes);
-    println!("{DISPLAY_NAME} v{VERSION} のセットアップ (JPEG XL・劣化なし)");
+    println!("{DISPLAY_NAME} v{VERSION} のセットアップ");
 
     let folders: Vec<PathBuf> = if !args.folders.is_empty() {
         args.folders.clone()

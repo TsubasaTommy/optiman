@@ -1,0 +1,7 @@
+//! Helpers shared by the integration tests.
+
+use std::path::{Path, PathBuf};
+
+pub fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+}

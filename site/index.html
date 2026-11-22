@@ -20,14 +20,11 @@
     --code-bg: #f2f3f1;
     --link: #07758f;
     --ok: #2f7a3a;
-    --focus: #07758f;
     --card: #767675;
     --card-ink: #ffffff;
     --hero-code: #262728;
     --hero-code-ink: #f3f3f2;
     --win: #ffffff;
-    --win-ink: #1f2021;
-    --win-muted: #5c5e60;
     --win-rule: #e6e7e4;
     --win-chrome: #f4f5f3;
     --bar: #3b3d3f;
@@ -42,7 +39,7 @@
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
+    :root {
       --page: #161718;
       --ink: #e7e8e6;
       --muted: #a2a5a7;
@@ -50,12 +47,9 @@
       --code-bg: #222325;
       --link: #63c4dc;
       --ok: #74c47f;
-      --focus: #63c4dc;
       --card: #4b4b4a;
       --hero-code: #1a1b1c;
       --win: #1f2022;
-      --win-ink: #e7e8e6;
-      --win-muted: #a2a5a7;
       --win-rule: #2f3133;
       --win-chrome: #26282a;
       --bar: #c9cbcc;
@@ -65,29 +59,6 @@
       --warn-rule: #b0801e;
       --warn-ink: #f1d598;
     }
-  }
-  :root[data-theme="dark"] {
-    --page: #161718;
-    --ink: #e7e8e6;
-    --muted: #a2a5a7;
-    --rule: #313335;
-    --code-bg: #222325;
-    --link: #63c4dc;
-    --ok: #74c47f;
-    --focus: #63c4dc;
-    --card: #4b4b4a;
-    --hero-code: #1a1b1c;
-    --win: #1f2022;
-    --win-ink: #e7e8e6;
-    --win-muted: #a2a5a7;
-    --win-rule: #2f3133;
-    --win-chrome: #26282a;
-    --bar: #c9cbcc;
-    --bar-track: #34363a;
-    --tint: #1c2527;
-    --warn-bg: #2a2211;
-    --warn-rule: #b0801e;
-    --warn-ink: #f1d598;
   }
 
   * { box-sizing: border-box; }
@@ -102,7 +73,7 @@
     -webkit-font-smoothing: antialiased;
   }
   a { color: var(--link); text-underline-offset: .2em; }
-  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
   code { font-family: var(--mono); }
   .wrap { max-width: 72rem; margin: 0 auto; padding: 0 16px; }
   @media (min-width: 640px) { .wrap { padding: 0 32px; } }
@@ -144,7 +115,6 @@
   .nb { white-space: nowrap; }
   .lead { font-size: 18px; line-height: 1.9; margin: 0 0 32px; max-width: 34em; word-break: auto-phrase; text-wrap: pretty; }
 
-  .cta[hidden] { display: none; }
   .cta-label { font-size: 14px; margin: 0 0 8px; }
   .hero .cmd pre { background: var(--hero-code); color: var(--hero-code-ink); border: 0; }
   .hero .cmd .copy { background: transparent; color: var(--hero-code-ink); border-color: rgba(255, 255, 255, .35); }
@@ -165,7 +135,7 @@
   /* The folder window */
   .folder { margin: 0; }
   .window {
-    background: var(--win); color: var(--win-ink); border-radius: 10px; overflow: hidden;
+    background: var(--win); color: var(--ink); border-radius: 10px; overflow: hidden;
     box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 28px 56px -20px rgba(0, 0, 0, .45);
   }
   .titlebar {
@@ -176,7 +146,7 @@
   .titlebar .lights i { width: 10px; height: 10px; border-radius: 50%; background: var(--win-rule); }
   .colhead {
     display: grid; grid-template-columns: 1fr auto; padding: 6px 16px 6px 52px;
-    font-size: 12px; color: var(--win-muted); border-bottom: 1px solid var(--win-rule);
+    font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--win-rule);
   }
   .files { list-style: none; margin: 0; padding: 0; }
   .file {
@@ -184,10 +154,10 @@
     padding: 14px 16px; border-bottom: 1px solid var(--win-rule);
     font-variant-numeric: tabular-nums;
   }
-  .file .icon { grid-row: 1 / span 3; width: 24px; height: 30px; color: var(--win-muted); }
+  .file .icon { grid-row: 1 / span 3; width: 24px; height: 30px; color: var(--muted); }
   .file .name { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
   .file .size { font-size: 14px; text-align: right; white-space: nowrap; }
-  .file .size .pct { color: var(--win-muted); margin-left: 6px; }
+  .file .size .pct { color: var(--muted); margin-left: 6px; }
   .file .bar { grid-column: 2 / 4; height: 6px; border-radius: 3px; background: var(--bar-track); overflow: hidden; }
   .file .bar span {
     display: block; height: 100%; width: calc(var(--ratio) * 100%); background: var(--bar);
@@ -195,7 +165,7 @@
   }
   .file .note {
     grid-column: 2 / 4; display: flex; gap: 6px; align-items: flex-start;
-    font-size: 13px; line-height: 1.6; color: var(--win-muted); transition: opacity .35s; word-break: auto-phrase;
+    font-size: 13px; line-height: 1.6; color: var(--muted); transition: opacity .35s; word-break: auto-phrase;
   }
   .file .note svg { flex: none; width: 14px; height: 14px; margin-top: 3px; }
   .file .note.ok svg { color: var(--ok); }
@@ -205,10 +175,10 @@
   .anim .file:not(.is-done) .new { display: none; }
   .anim .file:not(.is-done) .note { opacity: 0; }
   .anim .file:not(.is-done):not(.is-working) .bar span { width: 100%; }
-  .anim .file.is-working .name, .anim .file.is-working .size { color: var(--win-muted); }
+  .anim .file.is-working .name, .anim .file.is-working .size { color: var(--muted); }
   .status {
     display: flex; justify-content: space-between; gap: 12px; padding: 8px 16px;
-    background: var(--win-chrome); font-size: 12px; color: var(--win-muted);
+    background: var(--win-chrome); font-size: 12px; color: var(--muted);
   }
   .folder figcaption { font-size: 13px; margin-top: 14px; }
 
@@ -257,7 +227,6 @@
   }
   .tab:hover { color: var(--ink); }
   .tab[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }
-  .panel[hidden] { display: none; }
   main .download { background: var(--ink); color: var(--page); margin: 4px 0 12px; }
   main .download:hover { background: var(--muted); }
 
@@ -292,31 +261,27 @@
   .levels thead th:first-child { width: 5.5em; }
   .levels thead th:last-child { width: 32%; }
   .levels th:first-child { padding-left: 10px; }
-  .levels tbody th { font-family: var(--mincho); font-weight: 600; font-size: 20px; line-height: 1.4; letter-spacing: .04em; }
+  .levels tbody th { font-family: var(--mincho); font-weight: 600; font-size: 20px; line-height: 1.4; letter-spacing: .04em; vertical-align: middle; }
   .levels tbody th .sub { display: block; font-family: var(--gothic); font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
   .levels tbody td { vertical-align: middle; }
-  .levels tbody th { vertical-align: middle; }
   .levels tr.is-default > * { background: var(--tint); }
-  .levels .ok { color: var(--ok); font-weight: 700; }
   /* Measured sizes: each value carries a meter whose track is the original file. */
   .measure { table-layout: fixed; }
   .measure .c-name { width: 24%; }
-  .measure .c-default, .choose .c-default { background: var(--tint); }
+  .c-default { background: var(--tint); }
   .measure th .sub { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
   .measure thead th, .measure tbody td { padding-left: 10px; padding-right: 10px; }
-  .measure .v { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
+  .v { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
+  /* Value on top; meter and percentage below; an optional note under both. */
   .cg { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 6px; align-items: center; }
-  .cg .v { grid-column: 1 / -1; grid-row: 1; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
-  .cg .meter { grid-column: 1; grid-row: 2; margin-top: 0; }
+  .cg .v { grid-column: 1 / -1; grid-row: 1; }
+  .cg .meter { grid-column: 1; grid-row: 2; }
   .cg .pct { grid-column: 2; grid-row: 2; font-size: 13px; color: var(--muted); white-space: nowrap; }
-  .measure .cg .cell-note { grid-column: 1 / -1; grid-row: 3; }
-  .measure .pct { font-size: 13px; color: var(--muted); white-space: nowrap; }
-  .measure .cell-note { display: block; font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
+  .cg .cell-note { grid-column: 1 / -1; grid-row: 3; font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 4px; }
   .measure .same { font-size: 14px; color: var(--muted); }
-  .meter { display: block; height: 6px; border-radius: 3px; background: var(--bar-track); margin-top: 8px; overflow: hidden; }
+  .meter { display: block; height: 6px; border-radius: 3px; background: var(--bar-track); overflow: hidden; }
   .meter span { display: block; height: 100%; width: max(4px, calc(var(--r) * 100%)); border-radius: 3px; background: var(--bar); }
   .choose th[scope="col"]:first-child { width: 22%; }
-  .choose .ok { color: var(--ok); font-weight: 700; }
 
   .flow { list-style: none; padding: 0; margin: 20px 0 8px; display: flex; flex-wrap: wrap; align-items: center; row-gap: 16px; }
   .flow li { display: grid; grid-template-columns: 24px auto; column-gap: 10px; align-items: center; }
@@ -324,8 +289,7 @@
   .flow li + li::before { content: "→"; grid-row: 1 / span 3; font-size: 20px; line-height: 1; text-align: center; color: var(--muted); }
   .flow svg { grid-row: 1 / span 3; width: 24px; height: 30px; color: var(--muted); }
   .flow .f-name { font-weight: 700; font-size: 15px; line-height: 1.5; }
-  .flow .f-size, .flow .f-note { font-size: 13px; color: var(--muted); line-height: 1.5; }
-  .flow .f-note.ok { color: var(--ok); font-weight: 700; }
+  .f-size, .f-note { font-size: 13px; color: var(--muted); line-height: 1.5; }
 
   @media (max-width: 639px) {
     .levels thead th:first-child { width: 4.2rem; }
@@ -347,6 +311,7 @@
     .flow li + li::before { display: none; }
     .flow li + li { grid-template-columns: 24px auto; }
   }
+  main .ok { color: var(--ok); font-weight: 700; }
   .warn { background: var(--warn-bg); color: var(--warn-ink); border-left: 4px solid var(--warn-rule); padding: 16px 18px; margin: 24px 0; border-radius: 0 6px 6px 0; }
   .warn p:last-child { margin-bottom: 0; }
   .warn code { background: rgba(0, 0, 0, .06); }
@@ -369,6 +334,7 @@
 </style>
 </head>
 <body>
+<svg style="display: none"><symbol id="i-file" viewBox="0 0 24 30"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></symbol><symbol id="i-check" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
 
 <header class="hero">
   <div class="wrap">
@@ -404,21 +370,21 @@ optiman install</code></pre></div>
           <div class="colhead" aria-hidden="true"><span>名前</span><span>サイズ</span></div>
           <ul class="files">
             <li class="file">
-              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>
               <span class="name"><span class="old" aria-hidden="true">IMG_2041.jpg</span><span class="new">IMG_2041.jxl</span></span>
               <span class="size"><span class="old" aria-hidden="true">5.6 MB</span><span class="new">4.4 MB<span class="pct">−21%</span></span></span>
               <span class="bar" style="--ratio: .79" aria-hidden="true"><span></span></span>
-              <span class="note ok"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>元の JPEG にバイト単位で戻せることを確認</span>
+              <span class="note ok"><svg aria-hidden="true"><use href="#i-check"/></svg>元の JPEG にバイト単位で戻せることを確認</span>
             </li>
             <li class="file">
-              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>
               <span class="name"><span class="old" aria-hidden="true">夕景_4K.png</span><span class="new">夕景_4K.jxl</span></span>
               <span class="size"><span class="old" aria-hidden="true">10.6 MB</span><span class="new">6.2 MB<span class="pct">−41%</span></span></span>
               <span class="bar" style="--ratio: .59" aria-hidden="true"><span></span></span>
-              <span class="note ok"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>すべての画素が元と一致することを確認</span>
+              <span class="note ok"><svg aria-hidden="true"><use href="#i-check"/></svg>すべての画素が元と一致することを確認</span>
             </li>
             <li class="file">
-              <svg class="icon" viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg>
+              <svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>
               <span class="name">IMG_2042.heic</span>
               <span class="size">3.08 MB</span>
               <span class="bar" style="--ratio: 1" aria-hidden="true"><span></span></span>
@@ -474,10 +440,10 @@ optiman install</code></pre></div>
           <colgroup><col class="c-name"><col><col class="c-default"><col><col><col></colgroup>
           <thead><tr><th scope="col">画像</th><th scope="col">元のサイズ</th><th scope="col">最高<span class="sub">劣化なし、既定</span></th><th scope="col">高<span class="sub">非可逆</span></th><th scope="col">中<span class="sub">非可逆</span></th><th scope="col">低<span class="sub">非可逆</span></th></tr></thead>
           <tbody>
-            <tr><th scope="row">写真<span class="sub">JPEG、3840×2160</span></th><td data-label="元のサイズ"><span class="v">5.6 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">4.4 MB</span><span class="pct">−21%</span><span class="meter" aria-hidden="true"><span style="--r: .79"></span></span></span></td><td colspan="3" data-label="高・中・低" class="same">JPEG はどの画質でも劣化なしの 4.4 MB です</td></tr>
-            <tr><th scope="row">写真を PNG で保存したもの<span class="sub">3840×2160</span></th><td data-label="元のサイズ"><span class="v">10.6 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">6.2 MB</span><span class="pct">−41%</span><span class="meter" aria-hidden="true"><span style="--r: .59"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">840 KB</span><span class="pct">−92%</span><span class="meter" aria-hidden="true"><span style="--r: .079"></span></span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">528 KB</span><span class="pct">−95%</span><span class="meter" aria-hidden="true"><span style="--r: .050"></span></span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">392 KB</span><span class="pct">−96%</span><span class="meter" aria-hidden="true"><span style="--r: .037"></span></span></span></td></tr>
-            <tr><th scope="row">イラスト<span class="sub">PNG、3840×3840</span></th><td data-label="元のサイズ"><span class="v">15.7 MB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">10.5 MB</span><span class="pct">−33%</span><span class="meter" aria-hidden="true"><span style="--r: .67"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">236 KB</span><span class="pct">−98%</span><span class="meter" aria-hidden="true"><span style="--r: .015"></span></span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">139 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0089"></span></span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">117 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0075"></span></span></span></td></tr>
-            <tr><th scope="row">スクリーンショット<span class="sub">PNG、2880×1800</span></th><td data-label="元のサイズ"><span class="v">451 KB</span></td><td class="m" data-label="最高 (劣化なし)"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span></span></td><td class="m" data-label="高"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td class="m" data-label="中"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td class="m" data-label="低"><span class="cg"><span class="v">200 KB</span><span class="pct">−56%</span><span class="meter" aria-hidden="true"><span style="--r: .44"></span></span></span></td></tr>
+            <tr><th scope="row">写真<span class="sub">JPEG、3840×2160</span></th><td data-label="元のサイズ"><span class="v">5.6 MB</span></td><td data-label="最高 (劣化なし)"><span class="cg"><span class="v">4.4 MB</span><span class="pct">−21%</span><span class="meter" aria-hidden="true"><span style="--r: .79"></span></span></span></td><td colspan="3" data-label="高・中・低" class="same">JPEG はどの画質でも劣化なしの 4.4 MB です</td></tr>
+            <tr><th scope="row">写真を PNG で保存したもの<span class="sub">3840×2160</span></th><td data-label="元のサイズ"><span class="v">10.6 MB</span></td><td data-label="最高 (劣化なし)"><span class="cg"><span class="v">6.2 MB</span><span class="pct">−41%</span><span class="meter" aria-hidden="true"><span style="--r: .59"></span></span></span></td><td data-label="高"><span class="cg"><span class="v">840 KB</span><span class="pct">−92%</span><span class="meter" aria-hidden="true"><span style="--r: .079"></span></span></span></td><td data-label="中"><span class="cg"><span class="v">528 KB</span><span class="pct">−95%</span><span class="meter" aria-hidden="true"><span style="--r: .050"></span></span></span></td><td data-label="低"><span class="cg"><span class="v">392 KB</span><span class="pct">−96%</span><span class="meter" aria-hidden="true"><span style="--r: .037"></span></span></span></td></tr>
+            <tr><th scope="row">イラスト<span class="sub">PNG、3840×3840</span></th><td data-label="元のサイズ"><span class="v">15.7 MB</span></td><td data-label="最高 (劣化なし)"><span class="cg"><span class="v">10.5 MB</span><span class="pct">−33%</span><span class="meter" aria-hidden="true"><span style="--r: .67"></span></span></span></td><td data-label="高"><span class="cg"><span class="v">236 KB</span><span class="pct">−98%</span><span class="meter" aria-hidden="true"><span style="--r: .015"></span></span></span></td><td data-label="中"><span class="cg"><span class="v">139 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0089"></span></span></span></td><td data-label="低"><span class="cg"><span class="v">117 KB</span><span class="pct">−99%</span><span class="meter" aria-hidden="true"><span style="--r: .0075"></span></span></span></td></tr>
+            <tr><th scope="row">スクリーンショット<span class="sub">PNG、2880×1800</span></th><td data-label="元のサイズ"><span class="v">451 KB</span></td><td data-label="最高 (劣化なし)"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span></span></td><td data-label="高"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td data-label="中"><span class="cg"><span class="v">232 KB</span><span class="pct">−49%</span><span class="meter" aria-hidden="true"><span style="--r: .51"></span></span><span class="cell-note">※ 劣化なし</span></span></td><td data-label="低"><span class="cg"><span class="v">200 KB</span><span class="pct">−56%</span><span class="meter" aria-hidden="true"><span style="--r: .44"></span></span></span></td></tr>
           </tbody>
         </table>
       </div>
@@ -490,7 +456,6 @@ optiman install</code></pre></div>
           <thead><tr><th scope="col"><span class="sr-only">項目</span></th><th scope="col">最高 (劣化なし、既定)</th><th scope="col">高・中・低 (非可逆)</th></tr></thead>
           <tbody>
             <tr><th scope="row">元に戻す</th><td data-label="最高"><span class="ok">いつでも完全に戻せる</span></td><td data-label="高・中・低">戻せない。圧縮したあとの画質のまま</td></tr>
-            <tr><th scope="row">JPEG</th><td data-label="最高">元のファイルに戻せる形で約 2 割減る</td><td data-label="高・中・低">同じ。JPEG はどの画質でも劣化なし</td></tr>
             <tr><th scope="row">向いているもの</th><td data-label="最高">大事な写真、あとで編集する画像</td><td data-label="高・中・低">見返すだけの画像、容量を大きく空けたいとき</td></tr>
           </tbody>
         </table>
@@ -499,9 +464,9 @@ optiman install</code></pre></div>
       <h3>最高 (劣化なし) なら、元の画像にそのまま戻せます</h3>
       <p>上の 4 枚を「最高」で変換してから <code>optiman restore</code> で戻し、元の画像と比べました。JPEG は元のファイルとバイト単位で同じに戻り、PNG の 3 枚は合計 2,822 万画素がひとつ残らず元と同じでした。TIFF、BMP、WebP も、同じ画素の PNG として戻せます。</p>
       <ol class="flow" aria-label="写真の PNG を変換して戻した例">
-        <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.png</span><span class="f-size">10.6 MB</span><span class="f-note">元の画像</span></li>
-        <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.jxl</span><span class="f-size">6.2 MB</span><span class="f-note">最高 (劣化なし) で変換</span></li>
-        <li><svg viewBox="0 0 24 30" aria-hidden="true"><path d="M3 1h12l6 6v21a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 23l4.5-5.5 3 3.5 2-2 3 4z" fill="currentColor"/></svg><span class="f-name">写真.png</span><span class="f-size">829 万画素</span><span class="f-note ok">すべて元と一致</span></li>
+        <li><svg aria-hidden="true"><use href="#i-file"/></svg><span class="f-name">写真.png</span><span class="f-size">10.6 MB</span><span class="f-note">元の画像</span></li>
+        <li><svg aria-hidden="true"><use href="#i-file"/></svg><span class="f-name">写真.jxl</span><span class="f-size">6.2 MB</span><span class="f-note">最高 (劣化なし) で変換</span></li>
+        <li><svg aria-hidden="true"><use href="#i-file"/></svg><span class="f-name">写真.png</span><span class="f-size">829 万画素</span><span class="f-note ok">すべて元と一致</span></li>
       </ol>
     </section>
 
@@ -545,7 +510,7 @@ optiman install</code></pre></div>
           <tbody>
             <tr><th scope="row">macOS 14 以降</th><td>そのまま表示できます (Finder、プレビュー、写真)。</td></tr>
             <tr><th scope="row">Windows 11 24H2 以降</th><td>Microsoft 公式の無料拡張「<a href="https://apps.microsoft.com/detail/9MZPRTH5C0TB">JPEG XL Image Extension</a>」を入れると、エクスプローラーやフォトで表示できます。<strong>インストーラーがこの拡張も一緒に入れます</strong> (チェックを外せば入れません。winget で入れた場合は入らないので、下の方法で入れてください)。</td></tr>
-            <tr><th scope="row">それ以前の OS</th><td>変換はされますが、標準のアプリでは表示できません。<code>restore</code> でいつでも元に戻せます。</td></tr>
+            <tr><th scope="row">それ以前の OS</th><td>変換はされますが、標準のアプリでは表示できません。<code>restore</code> で JPEG や PNG に戻せば表示できます。</td></tr>
           </tbody>
         </table>
       </div>
@@ -567,7 +532,7 @@ optiman install</code></pre></div>
         </table>
       </div>
       <div class="warn">
-        <p><strong>元の写真は、既定では削除されます。</strong>上の確認に成功し、変換中に元ファイルが変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも <code>optiman restore &lt;ファイルまたはフォルダ&gt;</code> で元に戻せます (JPEG はバイト単位で元どおり、それ以外は同じ画素の PNG)。</p>
+        <p><strong>元の写真は、既定では削除されます。</strong>上の確認に成功し、変換中に元ファイルが変わっていないことを確かめてから削除します。心配な場合は、インストール時に「ゴミ箱へ移動」か「残す」を選んでください。削除したあとでも <code>optiman restore &lt;ファイルまたはフォルダ&gt;</code> で元に戻せます (JPEG はバイト単位で元どおり。それ以外は PNG で、画質が最高なら元と同じ画素)。</p>
       </div>
       <p class="small">「圧縮の強さ」で変わるのはサイズと時間だけで、画質は変わりません。変換は低優先度の子プロセスで行うので、時間がかかっても作業の邪魔になりません。</p>
     </section>
@@ -612,6 +577,7 @@ optiman install</code></pre></div>
             <tr><td><code>convert &lt;パス&gt;</code></td><td>ファイルやフォルダを今すぐ変換します (<code>--dry-run</code> で確認だけ。<code>--quality</code> で画質を指定)</td></tr>
             <tr><td><code>restore &lt;パス&gt;</code></td><td>JPEG XL から元のファイルを復元します (<code>--delete-jxl</code> で .jxl を削除)</td></tr>
             <tr><td><code>start</code> <code>stop</code> <code>restart</code></td><td>監視を開始、停止、再起動します</td></tr>
+            <tr><td><code>config</code></td><td>設定ファイルの場所と内容を表示します</td></tr>
             <tr><td><code>uninstall [--purge]</code></td><td>自動起動を解除します。<code>--purge</code> で設定とログも消します</td></tr>
           </tbody>
         </table>

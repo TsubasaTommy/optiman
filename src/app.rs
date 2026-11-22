@@ -123,9 +123,10 @@ pub fn save_settings(config_path: &Path, settings: &Settings) -> Result<Config> 
 /// Text shared by the two settings windows (AppKit and Win32 lay it out separately).
 pub mod ui_text {
     pub const TITLE: &str = "Optiman の設定";
-    pub const INTRO: &str = "写真を JPEG XL に変換します。JPEG はいつも元の JPEG にそのまま戻せる形で変換します。PNG、TIFF、BMP、ロスレス WebP は下の画質で変換します。HEIC と非可逆 WebP は変換しません。";
-    pub const EFFORT: &str = "圧縮の強さ";
-    pub const EFFORT_HINT: &str = "速い ← 時間をかけるほど小さくなります (画質は同じ) → 小さい";
+    pub const EFFORT: &str = "圧縮率";
+    pub const EFFORT_LOW: &str = "弱";
+    pub const EFFORT_HIGH: &str = "強";
+    pub const EFFORT_HINT: &str = "速度と容量が変わります ※画質は同じ";
     pub const QUALITY: &str = "画質";
     pub const INCLUDE: &str = "変換するフォルダ (サブフォルダも対象)";
     pub const EXCLUDE: &str = "除外するフォルダ (この中は変換しません)";
@@ -138,18 +139,6 @@ pub mod ui_text {
     pub const SAVE_FAILED: &str = "保存できませんでした";
 }
 
-/// A short description for an effort value (shown next to the slider).
-pub fn effort_label(effort: u8) -> String {
-    let hint = match effort {
-        1..=3 => "速い",
-        4..=6 => "やや小さい",
-        7 => "標準",
-        8 => "小さい",
-        _ => "最小 (時間がかかる)",
-    };
-    format!("{effort} ({hint})")
-}
-
 /// The settings in one line: quality, effort, originals and existing photos.
 pub fn summary(cfg: &Config) -> String {
     format!("{} / 既存の写真: {}", encoding_summary(cfg), if cfg.scan_existing { "変換する" } else { "新規のみ" })
@@ -157,12 +146,7 @@ pub fn summary(cfg: &Config) -> String {
 
 /// How photos are encoded and what happens to the originals.
 pub fn encoding_summary(cfg: &Config) -> String {
-    format!(
-        "画質: {} / 圧縮の強さ: {} / 元ファイル: {}",
-        mode_label(cfg),
-        effort_label(cfg.effort),
-        cfg.original.describe()
-    )
+    format!("画質: {} / 圧縮率: {} (1〜9) / 元ファイル: {}", mode_label(cfg), cfg.effort, cfg.original.describe())
 }
 
 /// One line describing how photos are encoded.
@@ -190,11 +174,5 @@ mod tests {
             mode_label(&Config { quality: Quality::Medium, ..Config::default() }),
             "中 (非可逆、JPEG は劣化なし)"
         );
-    }
-
-    #[test]
-    fn effort_labels() {
-        assert_eq!(effort_label(7), "7 (標準)");
-        assert!(effort_label(9).starts_with("9 "));
     }
 }

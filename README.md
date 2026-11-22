@@ -104,7 +104,7 @@ winget install --id 9MZPRTH5C0TB --source msstore
 | PNG、TIFF、BMP、ロスレス WebP | OS でデコードした値をそのまま、完全ロスレス (modular lossless) でエンコード。ICC (sRGB と Display P3 は CICP)、8 / 16 bit、透過、グレースケール、向き (Orientation)、EXIF / XMP を保持 | jxl-rs でデコードした画素が、元と**完全に一致**すること |
 | HEIC / HEIF、非可逆 WebP、RAW、CMYK、浮動小数点 (HDR)、ゲインマップ付き JPEG、HDR の PNG、アニメーション | 変換しません。劣化なしでは変換できないため、元のまま残します | |
 
-- 「圧縮の強さ」(1〜9、既定 7) で変わるのはサイズと時間だけで、画質は変わりません。
+- 「圧縮率」(1〜9、既定 7) で変わるのは速度と容量だけで、画質は変わりません。
 - 変換しても小さくならないファイルは、元のまま残します。
 
 > [!WARNING]
@@ -160,7 +160,7 @@ CI では、macOS と Windows の両方で、待機中に CPU 時間が増えな
 | コマンド | 内容 |
 |---|---|
 | `install` | 設定を作り、自動起動に登録します (`--folder` `--exclude` `--new-only` `--scan-existing` `--original delete\|trash\|keep` `--effort 1-9` `--quality lossless\|high\|medium\|low` `--yes`) |
-| `settings` | 設定画面を開きます (画質、圧縮の強さ、変換するフォルダ、除外するフォルダ) |
+| `settings` | 設定画面を開きます (画質、圧縮率、変換するフォルダ、除外するフォルダ) |
 | `status` | 状態、設定、監視フォルダにアクセスできるか、最近のログを表示します |
 | `convert <パス>...` | ファイルやフォルダを今すぐ変換します (`--dry-run` で確認だけ。ほかに `--original` `--effort` `--quality` `-j`) |
 | `restore <パス>...` | JPEG XL から元のファイルを復元します (`--delete-jxl` で、復元できた .jxl を削除) |
@@ -178,7 +178,7 @@ CI では、macOS と Windows の両方で、待機中に CPU 時間が増えな
 ```toml
 folders = ["~/Pictures"]   # 変換するフォルダ (サブフォルダも対象)
 exclude_folders = []       # 変換しないフォルダ
-effort = 7                 # 圧縮の強さ 1 (速い) - 9 (小さい)。変わるのはサイズと時間だけ
+effort = 7                 # 圧縮率 1 (弱) - 9 (強)。変わるのは速度と容量だけ
 quality = "lossless"       # 画質: lossless (最高・劣化なし) / high / medium / low。JPEG はどれでも劣化なし
 original = "delete"        # delete | trash | keep
 scan_existing = false      # 起動時に既存の写真も変換するか
@@ -228,6 +228,8 @@ scripts/idle-check.sh target/release/optiman 60
 リリースは、`v*` タグを push すると GitHub Actions が作ります (macOS Universal の tar.gz、Windows の Setup.exe と x64 / ARM64 の zip)。Homebrew の Formula と winget のマニフェストは `scripts/render_packaging.py` で生成します。
 
 冒頭の画像は `docs/hero-light.svg` と `docs/hero-dark.svg` です。色と文字は [配布ページ](site/index.html) の冒頭と揃えています。
+
+アプリのアイコン (`assets/optiman.icns` と `assets/optiman.ico`) は `scripts/render_icon.py` で書き出します。
 
 ## ライセンス
 

@@ -91,7 +91,7 @@ pub struct EncodingArgs {
     /// 変換後の元ファイルの扱い
     #[arg(long, value_enum)]
     pub original: Option<OriginalPolicy>,
-    /// 圧縮の強さ 1-9 (変わるのはサイズと時間だけ)
+    /// 圧縮率 1(弱)-9(強)。変わるのは速度と容量だけで、画質は同じ
     #[arg(long, value_parser = clap::value_parser!(u8).range(i64::from(*EFFORT_RANGE.start())..=i64::from(*EFFORT_RANGE.end())))]
     pub effort: Option<u8>,
     /// PNG、TIFF、BMP、ロスレス WebP の画質 (JPEG はどれでも劣化なし)
@@ -260,6 +260,10 @@ pub fn run_agent(config_path: &Path, log_stderr: bool, on_demand: bool) -> i32 {
     if lock.try_lock().is_err() {
         crate::info!("すでに起動しています");
         return 0;
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(e) = autostart::refresh_app_bundle() {
+        crate::warn!("設定アプリを更新できません: {e:#}");
     }
     let opts = daemon::Options { exit_when_idle: on_demand.then_some(ON_DEMAND_IDLE_EXIT) };
     match daemon::run(cfg, config_path, opts) {

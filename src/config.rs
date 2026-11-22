@@ -168,7 +168,7 @@ const HEADER: &str = "\
 #
 # folders         変換するフォルダ (サブフォルダも対象)
 # exclude_folders 変換しないフォルダ (folders の中で除外したい場所)
-# effort          圧縮の強さ 1(速い)-9(小さい) 既定 7。変わるのはサイズと時間だけで、画質は変わらない
+# effort          圧縮率 1(弱)-9(強) 既定 7。変わるのは速度と容量だけで、画質は同じ
 # quality         PNG、TIFF、BMP、ロスレス WebP の画質: \"lossless\"(最高・劣化なし) / \"high\"(高) / \"medium\"(中) / \"low\"(低)
 #                 高・中・低は非可逆で、元の画質には戻せない。JPEG はどれでも劣化なし
 # original        変換後の元ファイル: \"delete\"(完全削除) / \"trash\"(ゴミ箱) / \"keep\"(残す)
@@ -209,7 +209,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if !EFFORT_RANGE.contains(&self.effort) {
             bail!(
-                "effort (圧縮の強さ) は {}〜{} で指定してください (現在 {})",
+                "effort (圧縮率) は {}〜{} で指定してください (現在 {})",
                 EFFORT_RANGE.start(),
                 EFFORT_RANGE.end(),
                 self.effort

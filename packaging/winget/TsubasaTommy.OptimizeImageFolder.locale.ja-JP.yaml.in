@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 
 PackageIdentifier: TsubasaTommy.OptimizeImageFolder
 PackageVersion: @VERSION@
@@ -13,4 +13,4 @@ Description: |-
   元ファイルを消す前に、毎回変換結果を検証します。待機中は CPU を使いません。
   インストーラーは Microsoft 公式の無料拡張「JPEG XL Image Extension」(Windows 11 24H2 以降) も入れられるので、エクスプローラーやフォトでそのまま表示できます。
 ManifestType: locale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0

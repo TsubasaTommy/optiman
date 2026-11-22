@@ -223,7 +223,10 @@ jobs:
             if (-not (Test-Path (Join-Path $app $f))) { throw "missing $f" }
           }
           $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optimize-image-folder" -ErrorAction SilentlyContinue
-          if (-not $run) { throw "autostart entry was not registered" }
+          if (-not $run) {
+            & "$app\optimize-image-folder.exe" install --yes --new-only  # shows why registration failed
+            throw "autostart entry was not registered"
+          }
           Start-Sleep -Seconds 3
           $agent = Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue
           if (-not $agent) { throw "the agent is not running" }

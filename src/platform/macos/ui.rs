@@ -260,7 +260,7 @@ impl Controller {
             )
         };
         unsafe { window.setReleasedWhenClosed(false) };
-        window.setTitle(&NSString::from_str("Optimize Image Folder の設定"));
+        window.setTitle(&NSString::from_str("Optiman の設定"));
         let content = window.contentView().expect("content view");
 
         self.label(
@@ -321,7 +321,7 @@ impl Controller {
                 t.reloadData();
             }
         }
-        if let Some(path) = std::env::var_os("OIF_UI_SNAPSHOT") {
+        if let Some(path) = std::env::var_os("OPTIMAN_UI_SNAPSHOT") {
             window.setAppearance(NSAppearance::appearanceNamed(unsafe { NSAppearanceNameAqua }).as_deref());
             content.layoutSubtreeIfNeeded();
             window.displayIfNeeded();

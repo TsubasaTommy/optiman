@@ -1,7 +1,7 @@
 //! launchd user agent (`~/Library/LaunchAgents`) that is started **on demand**:
 //! `LaunchEvents` / `com.apple.fsevents.matching` makes launchd launch the agent when anything
 //! below a watched folder changes, so no process of ours exists while nothing happens.
-//! Also installs the settings app bundle (`~/Applications/Optimize Image Folder.app`).
+//! Also installs the settings app bundle (`~/Applications/Optiman.app`).
 
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -12,9 +12,12 @@ use anyhow::{Context, Result, bail};
 
 use super::paths::home_dir;
 
-pub const LABEL: &str = "io.github.tsubasatommy.optimize-image-folder";
-pub const APP_NAME: &str = "Optimize Image Folder";
-const BUNDLE_ID: &str = "io.github.tsubasatommy.optimize-image-folder.settings";
+pub const LABEL: &str = "io.github.tsubasatommy.optiman";
+pub const APP_NAME: &str = crate::DISPLAY_NAME;
+const BUNDLE_ID: &str = "io.github.tsubasatommy.optiman.settings";
+/// Names used up to v0.2.0 (see `crate::migrate`).
+const LEGACY_LABEL: &str = "io.github.tsubasatommy.optimize-image-folder";
+const LEGACY_APP_NAME: &str = "Optimize Image Folder";
 
 /// What the agent needs to know to be registered.
 pub struct AgentSpec<'a> {
@@ -184,6 +187,22 @@ pub fn uninstall() -> Result<()> {
     Ok(())
 }
 
+/// Stops and removes the agent and the settings app registered under the former name (up to
+/// v0.2.0). Returns whether an agent was registered.
+pub fn remove_legacy() -> bool {
+    let app = home_dir().join("Applications").join(format!("{LEGACY_APP_NAME}.app"));
+    if app.join("Contents/Info.plist").exists() {
+        let _ = fs::remove_dir_all(&app);
+    }
+    let plist = home_dir().join("Library/LaunchAgents").join(format!("{LEGACY_LABEL}.plist"));
+    if !plist.exists() {
+        return false;
+    }
+    let _ = launchctl(&["bootout", &format!("{}/{LEGACY_LABEL}", domain())]);
+    let _ = fs::remove_file(&plist);
+    true
+}
+
 pub fn describe() -> String {
     format!("LaunchAgent (フォルダの変更時だけ起動): {}", plist_path().display())
 }
@@ -200,7 +219,7 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>optimize-image-folder</string>
+	<string>optiman</string>
 	<key>CFBundleIdentifier</key>
 	<string>{BUNDLE_ID}</string>
 	<key>CFBundleName</key>
@@ -221,7 +240,7 @@ fn install_app_bundle(exe: &Path) -> Result<()> {
         crate::VERSION
     );
     fs::write(app.join("Contents/Info.plist"), info)?;
-    let link = macos.join("optimize-image-folder");
+    let link = macos.join("optiman");
     let _ = fs::remove_file(&link);
     symlink(exe, &link).with_context(|| format!("リンクを作成できません: {}", link.display()))?;
     Ok(())
@@ -240,7 +259,7 @@ mod tests {
     fn plist_has_launch_events_per_folder_and_escapes() {
         let folders = [PathBuf::from("/Users/a/Pictures"), PathBuf::from("/Volumes/x&y/Photos")];
         let spec = AgentSpec {
-            exe: Path::new("/opt/homebrew/bin/optimize-image-folder"),
+            exe: Path::new("/opt/homebrew/bin/optiman"),
             config: Path::new("/c<d>/config.toml"),
             log_dir: Path::new("/logs"),
             folders: &folders,
@@ -256,7 +275,7 @@ mod tests {
 
     #[test]
     fn cellar_paths_map_to_the_stable_link() {
-        let p = Path::new("/nonexistent-prefix/Cellar/optimize-image-folder/0.2.0/bin/optimize-image-folder");
+        let p = Path::new("/nonexistent-prefix/Cellar/optiman/0.2.0/bin/optiman");
         assert_eq!(stable_path(p), p, "falls back when the link does not exist");
     }
 }

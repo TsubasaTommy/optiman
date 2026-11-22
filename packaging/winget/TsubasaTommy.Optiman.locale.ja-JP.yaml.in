@@ -1,10 +1,10 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 
-PackageIdentifier: TsubasaTommy.OptimizeImageFolder
+PackageIdentifier: TsubasaTommy.Optiman
 PackageVersion: @VERSION@
 PackageLocale: ja-JP
 Publisher: TsubasaTommy
-PackageName: Optimize Image Folder
+PackageName: Optiman
 License: MIT
 ShortDescription: 写真フォルダを画質の劣化なしで JPEG XL に変換します。待機中のリソース使用はゼロです。
 Description: |-

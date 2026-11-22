@@ -61,8 +61,7 @@ pub fn consume_fsevents_launch_events(notifier: Notifier) {
         return; // already registered
     }
     unsafe {
-        let queue =
-            dispatch_queue_create(c"io.github.tsubasatommy.optimize-image-folder.launch".as_ptr(), std::ptr::null());
+        let queue = dispatch_queue_create(c"io.github.tsubasatommy.optiman.launch".as_ptr(), std::ptr::null());
         xpc_set_event_stream_handler(STREAM.as_ptr(), queue, (&raw const HANDLER.0).cast());
     }
 }

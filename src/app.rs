@@ -12,7 +12,7 @@ use crate::daemon::resolve_roots;
 use crate::platform::{autostart, events, paths};
 
 pub fn default_config_path() -> PathBuf {
-    match std::env::var_os("OIF_HOME") {
+    match std::env::var_os("OPTIMAN_HOME") {
         Some(home) => PathBuf::from(home).join("config.toml"),
         None => paths::config_dir().join("config.toml"),
     }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn log_location_follows_the_config() {
         let custom = Path::new("/tmp/somewhere/config.toml");
-        assert_eq!(log_path_for(custom), Path::new("/tmp/somewhere/optimize-image-folder.log"));
+        assert_eq!(log_path_for(custom), Path::new("/tmp/somewhere/optiman.log"));
     }
 
     #[test]

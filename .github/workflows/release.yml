@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # A manual run builds and tests everything (including the upgrade from v0.2.0) without publishing.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,7 +14,7 @@ env:
   RUST_TOOLCHAIN: "1.100.0"
   INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe
   INNO_SHA256: 8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0
-  OIF_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
+  OPTIMAN_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
 
 jobs:
   macos:
@@ -42,16 +44,16 @@ jobs:
 
       # One cargo invocation builds both architectures in parallel.
       - name: Build
-        run: cargo build --release --locked --target aarch64-apple-darwin --target x86_64-apple-darwin --bin optimize-image-folder
+        run: cargo build --release --locked --target aarch64-apple-darwin --target x86_64-apple-darwin --bin optiman
 
       - name: Universal binary
         run: |
           mkdir -p dist/pkg
-          lipo -create -output dist/pkg/optimize-image-folder \
-            target/aarch64-apple-darwin/release/optimize-image-folder \
-            target/x86_64-apple-darwin/release/optimize-image-folder
-          lipo -info dist/pkg/optimize-image-folder
-          dist/pkg/optimize-image-folder --version
+          lipo -create -output dist/pkg/optiman \
+            target/aarch64-apple-darwin/release/optiman \
+            target/x86_64-apple-darwin/release/optiman
+          lipo -info dist/pkg/optiman
+          dist/pkg/optiman --version
 
       - name: Sign (Developer ID if configured, ad-hoc otherwise)
         env:
@@ -62,7 +64,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          BIN=dist/pkg/optimize-image-folder
+          BIN=dist/pkg/optiman
           if [ -n "$APPLE_CERT_P12" ]; then
             KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
             KEYCHAIN_PASSWORD="$(uuidgen)"
@@ -86,7 +88,7 @@ jobs:
       - name: Package
         run: |
           cp README.md LICENSE THIRD_PARTY_LICENSES.txt dist/pkg/
-          tar -C dist/pkg -czf dist/optimize-image-folder-macos-universal.tar.gz .
+          tar -C dist/pkg -czf dist/optiman-macos-universal.tar.gz .
 
       - uses: actions/upload-artifact@v7
         with:
@@ -155,9 +157,9 @@ jobs:
           $out = "target/${{ matrix.target }}/release"
           $bin = "dist/windows-${{ matrix.arch }}"
           New-Item -ItemType Directory -Force $bin, dist/pkg | Out-Null
-          Copy-Item "$out/optimize-image-folder.exe", "$out/optimize-image-folder-agent.exe" $bin
+          Copy-Item "$out/optiman.exe", "$out/optiman-agent.exe" $bin
           Copy-Item "$bin/*", README.md, LICENSE, THIRD_PARTY_LICENSES.txt dist/pkg/
-          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/optimize-image-folder-windows-${{ matrix.arch }}.zip"
+          Compress-Archive -Path dist/pkg/* -DestinationPath "dist/optiman-windows-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -205,10 +207,57 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          ISCC.exe "/DAppVersion=$version" "/DBinX64=$PWD\dist\windows-x64" "/DBinArm64=$PWD\dist\windows-arm64" "/DOutputDir=$PWD\dist" packaging\windows\OptimizeImageFolder.iss
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$version") {
+            throw "tag ${{ github.ref_name }} does not match Cargo.toml version $version"
+          }
+          ISCC.exe "/DAppVersion=$version" "/DBinX64=$PWD\dist\windows-x64" "/DBinArm64=$PWD\dist\windows-arm64" "/DOutputDir=$PWD\dist" packaging\windows\Optiman.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-          Get-Item dist\OptimizeImageFolder-Setup.exe
+          Get-Item dist\Optiman-Setup.exe
+
+      - name: Upgrade from v0.2.0 (published as Optimize Image Folder)
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          function Invoke-Setup($exe, $log) {
+            # Wait for setup itself only: `Start-Process -Wait` would also wait for the agent it starts.
+            $p = Start-Process -PassThru -FilePath $exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"$log`""
+            $null = $p.Handle
+            if (-not $p.WaitForExit(600000)) { throw "setup did not finish" }
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 30; throw "$exe exited with $($p.ExitCode)" }
+          }
+          $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          $oldDir = Join-Path $env:LOCALAPPDATA "Programs\OptimizeImageFolder"
+          $newDir = Join-Path $env:LOCALAPPDATA "Programs\Optiman"
+          $old = Join-Path $env:RUNNER_TEMP "OptimizeImageFolder-Setup.exe"
+          Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/v0.2.0/OptimizeImageFolder-Setup.exe" -OutFile $old
+          Invoke-Setup $old (Join-Path $env:RUNNER_TEMP "old.log")
+          Start-Sleep -Seconds 3
+          if (-not (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue)) { throw "the v0.2.0 agent is not running" }
+
+          $log = Join-Path $env:RUNNER_TEMP "upgrade.log"
+          Invoke-Setup dist\Optiman-Setup.exe $log
+          Start-Sleep -Seconds 3
+          $failures = @()
+          if (Test-Path $oldDir) { Get-ChildItem $oldDir; $failures += "the old program folder remains" }
+          if (-not (Test-Path "$newDir\optiman.exe")) { $failures += "optiman.exe is missing" }
+          if (Get-ItemProperty $runKey -Name "optimize-image-folder" -ErrorAction SilentlyContinue) { $failures += "the old autostart entry remains" }
+          if (-not (Get-ItemProperty $runKey -Name "optiman" -ErrorAction SilentlyContinue)) { $failures += "the new autostart entry is missing" }
+          if (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue) { $failures += "the old agent is still running" }
+          if (-not (Get-Process "optiman-agent" -ErrorAction SilentlyContinue)) { $failures += "the new agent is not running" }
+          if (Test-Path (Join-Path $env:APPDATA "optimize-image-folder")) { $failures += "the old settings folder remains" }
+          if (-not (Test-Path (Join-Path $env:APPDATA "optiman\config.toml"))) { $failures += "the settings were not moved" }
+          if ((Get-ItemProperty "HKCU:\Environment").Path -match "OptimizeImageFolder") { $failures += "the old PATH entry remains" }
+          if (Test-Path (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Optimize Image Folder.lnk")) { $failures += "the old shortcut remains" }
+          if ($failures) { Get-Content $log -Tail 40; throw ($failures -join "; ") }
+          & "$newDir\optiman.exe" status
+          "OK: upgrade from v0.2.0"
+
+          # Start the fresh-install test below from a clean profile.
+          $u = Start-Process -Wait -PassThru -FilePath "$newDir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          if ($u.ExitCode -ne 0) { throw "uninstall exited with $($u.ExitCode)" }
+          Start-Sleep -Seconds 3
+          Remove-Item -Recurse -Force (Join-Path $env:APPDATA "optiman"), (Join-Path $env:LOCALAPPDATA "optiman") -ErrorAction SilentlyContinue
 
       - name: Silent install, run and uninstall
         timeout-minutes: 20
@@ -216,43 +265,44 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP "setup.log"
           # Wait for setup itself only: `Start-Process -Wait` would also wait for the agent it starts.
-          $p = Start-Process -PassThru -FilePath dist\OptimizeImageFolder-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"$log`""
+          $p = Start-Process -PassThru -FilePath dist\Optiman-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"$log`""
           $null = $p.Handle
           if (-not $p.WaitForExit(600000)) { throw "setup did not finish" }
           Get-Content $log -Tail 30
           if ($p.ExitCode -ne 0) { throw "setup exited with $($p.ExitCode)" }
-          $app = Join-Path $env:LOCALAPPDATA "Programs\OptimizeImageFolder"
-          foreach ($f in "optimize-image-folder.exe", "optimize-image-folder-agent.exe", "THIRD_PARTY_LICENSES.txt") {
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Optiman"
+          foreach ($f in "optiman.exe", "optiman-agent.exe", "THIRD_PARTY_LICENSES.txt") {
             if (-not (Test-Path (Join-Path $app $f))) { throw "missing $f" }
           }
-          $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optimize-image-folder" -ErrorAction SilentlyContinue
+          $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optiman" -ErrorAction SilentlyContinue
           if (-not $run) {
-            & "$app\optimize-image-folder.exe" install --yes --new-only  # shows why registration failed
+            & "$app\optiman.exe" install --yes --new-only  # shows why registration failed
             throw "autostart entry was not registered"
           }
           Start-Sleep -Seconds 3
-          $agent = Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue
+          $agent = Get-Process "optiman-agent" -ErrorAction SilentlyContinue
           if (-not $agent) { throw "the agent is not running" }
           "agent: threads $($agent.Threads.Count), private $([math]::Round($agent.PrivateMemorySize64 / 1MB, 1)) MB"
-          & "$app\optimize-image-folder.exe" status
+          & "$app\optiman.exe" status
 
           $u = Start-Process -Wait -PassThru -FilePath "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
           if ($u.ExitCode -ne 0) { throw "uninstall exited with $($u.ExitCode)" }
           Start-Sleep -Seconds 3
-          if (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optimize-image-folder" -ErrorAction SilentlyContinue) {
+          if (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "optiman" -ErrorAction SilentlyContinue) {
             throw "autostart entry was not removed"
           }
-          if (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
+          if (Get-Process "optiman-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
           "OK: install, autostart, agent start, uninstall"
 
       - uses: actions/upload-artifact@v7
         with:
           name: installer
-          path: dist/OptimizeImageFolder-Setup.exe
+          path: dist/Optiman-Setup.exe
 
   publish:
     name: publish release
     needs: [macos, windows, installer]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

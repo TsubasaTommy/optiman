@@ -2,8 +2,8 @@
 """Renders the Homebrew formula and the winget manifests for a published release.
 
 Usage: python3 scripts/render_packaging.py VERSION SHA256SUMS.txt OUT_DIR
-Writes OUT_DIR/homebrew/optimize-image-folder.rb and
-OUT_DIR/winget/manifests/t/TsubasaTommy/OptimizeImageFolder/VERSION/*.yaml
+Writes OUT_DIR/homebrew/optiman.rb and
+OUT_DIR/winget/manifests/t/TsubasaTommy/Optiman/VERSION/*.yaml
 """
 
 import datetime
@@ -22,8 +22,8 @@ def main():
     values = {
         "@VERSION@": version,
         "@DATE@": datetime.date.today().isoformat(),
-        "@SHA256_MACOS@": sums["optimize-image-folder-macos-universal.tar.gz"],
-        "@SHA256_SETUP@": sums["OptimizeImageFolder-Setup.exe"],
+        "@SHA256_MACOS@": sums["optiman-macos-universal.tar.gz"],
+        "@SHA256_SETUP@": sums["Optiman-Setup.exe"],
     }
 
     def render(template, dest):
@@ -34,8 +34,8 @@ def main():
         dest.write_bytes(text.encode("utf-8"))
         print(dest)
 
-    render(ROOT / "packaging/homebrew/optimize-image-folder.rb.in", out / "homebrew/optimize-image-folder.rb")
-    winget = out / "winget/manifests/t/TsubasaTommy/OptimizeImageFolder" / version
+    render(ROOT / "packaging/homebrew/optiman.rb.in", out / "homebrew/optiman.rb")
+    winget = out / "winget/manifests/t/TsubasaTommy/Optiman" / version
     for template in sorted((ROOT / "packaging/winget").glob("*.yaml.in")):
         render(template, winget / template.name.removesuffix(".in"))
 

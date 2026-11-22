@@ -3,7 +3,7 @@
 # Usage: scripts/idle-check.sh [binary] [seconds]
 set -euo pipefail
 
-BIN=${1:-target/release/optimize-image-folder}
+BIN=${1:-target/release/optiman}
 SECS=${2:-60}
 # Allowed CPU time while idle, in centiseconds (ps resolution is 10 ms).
 MAX_CS=${MAX_IDLE_CS:-0}
@@ -17,7 +17,7 @@ settle_seconds = 1
 effort = 3
 CFG
 
-OIF_HOME="$WORK/home" "$BIN" --config "$WORK/home/config.toml" run --log-stderr 2> "$WORK/agent.log" &
+OPTIMAN_HOME="$WORK/home" "$BIN" --config "$WORK/home/config.toml" run --log-stderr 2> "$WORK/agent.log" &
 PID=$!
 trap 'kill $PID 2>/dev/null || true; rm -rf "$WORK"' EXIT
 

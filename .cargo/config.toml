@@ -10,4 +10,4 @@ incompatible-publish-age = "deny"
 # `test` and `--release`, instead of rebuilding it in every profile's OUT_DIR (see build.rs).
 # An existing environment variable (CI) takes precedence.
 [env]
-OIF_LIBJXL_CACHE_DIR = { value = "target/libjxl", relative = true }
+OPTIMAN_LIBJXL_CACHE_DIR = { value = "target/libjxl", relative = true }

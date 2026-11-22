@@ -32,6 +32,7 @@ use windows::Win32::System::Threading::{GetCurrentProcessId, INFINITE};
 use windows::core::PCWSTR;
 
 use super::wide;
+use crate::APP_NAME;
 use crate::event::Msg;
 
 const BUF_BYTES: usize = 64 * 1024;
@@ -93,8 +94,8 @@ pub struct EventLoop {
 }
 
 /// One control pipe per logon session and config file, so agents for different configs (tests,
-/// several users on one machine) never collide.
-fn pipe_name(config: &Path) -> Vec<u16> {
+/// several users on one machine) never collide. `app` is the name the agent was built under.
+fn pipe_name(app: &str, config: &Path) -> Vec<u16> {
     let mut session = 0u32;
     unsafe {
         let _ = ProcessIdToSessionId(GetCurrentProcessId(), &mut session);
@@ -106,7 +107,7 @@ fn pipe_name(config: &Path) -> Vec<u16> {
         .to_lowercase()
         .bytes()
         .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
-    wide(OsString::from(format!(r"\\.\pipe\optimize-image-folder-{session}-{hash:016x}")).as_os_str())
+    wide(OsString::from(format!(r"\\.\pipe\{app}-{session}-{hash:016x}")).as_os_str())
 }
 
 impl EventLoop {
@@ -154,7 +155,7 @@ impl EventLoop {
 
     /// Stop requests arrive as a connection on a per-session named pipe (no thread waits for it).
     pub fn listen_control(&mut self, config: &Path) -> Result<()> {
-        let name = pipe_name(config);
+        let name = pipe_name(APP_NAME, config);
         let handle = unsafe {
             CreateNamedPipeW(
                 PCWSTR(name.as_ptr()),
@@ -340,7 +341,12 @@ pub fn current_event_id() -> Option<u64> {
 
 /// Asks the running agent to stop by connecting to its control pipe.
 pub fn request_stop(config: &Path) -> bool {
-    let name = pipe_name(config);
+    request_stop_as(APP_NAME, config)
+}
+
+/// Asks an agent built under the name `app` (such as the former name) to exit.
+pub fn request_stop_as(app: &str, config: &Path) -> bool {
+    let name = pipe_name(app, config);
     match unsafe {
         CreateFileW(
             PCWSTR(name.as_ptr()),

@@ -11,6 +11,6 @@ cfg_select! {
         pub use self::windows::{ThreadInit, autostart, events, fsutil, image, paths, power, ui};
     }
     _ => {
-        compile_error!("optimize-image-folder supports macOS and Windows only");
+        compile_error!("optiman supports macOS and Windows only");
     }
 }

@@ -1,13 +1,13 @@
-# optimize-image-folder installer for Windows.
-#   irm https://tsubasatommy.github.io/optimize-image-folder/install.ps1 | iex
-# Downloads the latest OptimizeImageFolder-Setup.exe, checks its SHA256 against the release's
-# SHA256SUMS.txt and runs it. Set $env:OIF_SILENT = "1" for a silent install with the defaults.
+# Optiman installer for Windows.
+#   irm https://tsubasatommy.github.io/optiman/install.ps1 | iex
+# Downloads the latest Optiman-Setup.exe, checks its SHA256 against the release's
+# SHA256SUMS.txt and runs it. Set $env:OPTIMAN_SILENT = "1" for a silent install with the defaults.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "TsubasaTommy/optimize-image-folder"
-$asset = "OptimizeImageFolder-Setup.exe"
+$repo = "TsubasaTommy/optiman"
+$asset = "Optiman-Setup.exe"
 $base = "https://github.com/$repo/releases/latest/download"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("oif-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -25,7 +25,7 @@ try {
     if (-not $expected -or $expected -ne $actual) { throw "チェックサムが一致しません (期待値: $expected, 実際: $actual)" }
 
     $start = @{ FilePath = $exe; PassThru = $true }
-    if ($env:OIF_SILENT) { $start.ArgumentList = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-") }
+    if ($env:OPTIMAN_SILENT) { $start.ArgumentList = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-") }
     Write-Host "インストーラーを起動します"
     # Wait for the installer only (Start-Process -Wait would also wait for the agent it starts).
     $p = Start-Process @start

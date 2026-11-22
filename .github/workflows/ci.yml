@@ -19,7 +19,7 @@ env:
   # Line tables keep backtraces readable with much less debug info to compile and link.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   # libjxl is built once per target into this directory and cached separately (see build.rs).
-  OIF_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
+  OPTIMAN_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
 
 jobs:
   test:
@@ -98,32 +98,32 @@ jobs:
       # the optimized (LTO) binaries.
       - name: Idle CPU check (macOS)
         if: runner.os == 'macOS'
-        run: scripts/idle-check.sh target/debug/optimize-image-folder 30
+        run: scripts/idle-check.sh target/debug/optiman 30
 
       - name: Idle CPU check (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/idle-check.ps1 -Exe target/debug/optimize-image-folder.exe -Seconds 30
+        run: ./scripts/idle-check.ps1 -Exe target/debug/optiman.exe -Seconds 30
 
       - name: Install / uninstall smoke test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $work = Join-Path $env:RUNNER_TEMP "oif-smoke"
+          $work = Join-Path $env:RUNNER_TEMP "optiman-smoke"
           $photos = Join-Path $work "photos"
           New-Item -ItemType Directory -Force $photos | Out-Null
-          $env:OIF_HOME = Join-Path $work "home"
-          $cli = Resolve-Path target/debug/optimize-image-folder.exe
+          $env:OPTIMAN_HOME = Join-Path $work "home"
+          $cli = Resolve-Path target/debug/optiman.exe
           & $cli install --yes --new-only --folder $photos
           if ($LASTEXITCODE -ne 0) { throw "install failed" }
           $run = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-          if (-not (Get-ItemProperty $run -Name "optimize-image-folder" -ErrorAction SilentlyContinue)) { throw "not registered" }
+          if (-not (Get-ItemProperty $run -Name "optiman" -ErrorAction SilentlyContinue)) { throw "not registered" }
           Start-Sleep -Seconds 3
-          if (-not (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue)) { throw "the agent did not start" }
+          if (-not (Get-Process "optiman-agent" -ErrorAction SilentlyContinue)) { throw "the agent did not start" }
           & $cli status
           & $cli uninstall --purge
           if ($LASTEXITCODE -ne 0) { throw "uninstall failed" }
           Start-Sleep -Seconds 2
-          if (Get-ItemProperty $run -Name "optimize-image-folder" -ErrorAction SilentlyContinue) { throw "still registered" }
-          if (Get-Process "optimize-image-folder-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
+          if (Get-ItemProperty $run -Name "optiman" -ErrorAction SilentlyContinue) { throw "still registered" }
+          if (Get-Process "optiman-agent" -ErrorAction SilentlyContinue) { throw "the agent is still running" }
           "OK: install, agent start, uninstall"

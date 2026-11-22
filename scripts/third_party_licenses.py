@@ -79,7 +79,7 @@ def section(title, files, note=None):
 
 def render():
     out = [
-        "Third-party software in optimize-image-folder\n"
+        "Third-party software in Optiman\n"
         "==============================================\n\n"
         "The release binaries statically link the following software. Their licenses follow.\n\n"
     ]

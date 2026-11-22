@@ -1,7 +1,7 @@
 # Measures the agent's CPU time while idle (after it has converted one file).
 # Usage: pwsh scripts/idle-check.ps1 [-Exe path] [-Seconds 60] [-MaxIdleMs 0]
 param(
-    [string]$Exe = "target\release\optimize-image-folder.exe",
+    [string]$Exe = "target\release\optiman.exe",
     [int]$Seconds = 60,
     [double]$MaxIdleMs = 0
 )
@@ -21,7 +21,7 @@ effort = 3
 "@
 
 $log = Join-Path $work "agent.log"
-$env:OIF_HOME = $home_
+$env:OPTIMAN_HOME = $home_
 $p = Start-Process -FilePath (Resolve-Path $Exe) -ArgumentList @("--config", "`"$cfg`"", "run", "--log-stderr") `
     -PassThru -NoNewWindow -RedirectStandardError $log
 try {

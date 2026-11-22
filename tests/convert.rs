@@ -4,9 +4,9 @@ use std::assert_matches;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use oif::config::{Config, OriginalPolicy};
-use oif::convert::{ConvertCtx, Outcome, convert_file};
-use oif::{jxl, platform, restore};
+use optiman::config::{Config, OriginalPolicy};
+use optiman::convert::{ConvertCtx, Outcome, convert_file};
+use optiman::{jxl, platform, restore};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)

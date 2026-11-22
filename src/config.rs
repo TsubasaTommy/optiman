@@ -99,8 +99,8 @@ impl Default for Config {
 }
 
 const HEADER: &str = "\
-# optimize-image-folder の設定ファイル (設定画面からも変更できます)
-# 手で編集したら `optimize-image-folder restart` で反映されます。
+# Optiman の設定ファイル (設定画面からも変更できます)
+# 手で編集したら `optiman restart` で反映されます。
 #
 # folders         変換するフォルダ (サブフォルダも対象)
 # exclude_folders 変換しないフォルダ (folders の中で除外したい場所)

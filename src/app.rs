@@ -52,7 +52,7 @@ pub fn agent_running(config_path: &Path) -> bool {
 pub fn stop_agent(config_path: &Path) -> Result<()> {
     autostart::stop()?;
     if agent_running(config_path) {
-        events::request_stop();
+        events::request_stop(config_path);
         for _ in 0..100 {
             if !agent_running(config_path) {
                 break;

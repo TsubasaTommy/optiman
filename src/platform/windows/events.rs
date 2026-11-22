@@ -92,12 +92,21 @@ pub struct EventLoop {
     pending: VecDeque<Msg>,
 }
 
-fn pipe_name() -> Vec<u16> {
+/// One control pipe per logon session and config file, so agents for different configs (tests,
+/// several users on one machine) never collide.
+fn pipe_name(config: &Path) -> Vec<u16> {
     let mut session = 0u32;
     unsafe {
         let _ = ProcessIdToSessionId(GetCurrentProcessId(), &mut session);
     }
-    wide(OsString::from(format!(r"\\.\pipe\optimize-image-folder-{session}")).as_os_str())
+    let config = std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf());
+    // FNV-1a: stable across builds, unlike std's hasher.
+    let hash = config
+        .to_string_lossy()
+        .to_lowercase()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    wide(OsString::from(format!(r"\\.\pipe\optimize-image-folder-{session}-{hash:016x}")).as_os_str())
 }
 
 impl EventLoop {
@@ -144,8 +153,8 @@ impl EventLoop {
     }
 
     /// Stop requests arrive as a connection on a per-session named pipe (no thread waits for it).
-    pub fn listen_control(&mut self) -> Result<()> {
-        let name = pipe_name();
+    pub fn listen_control(&mut self, config: &Path) -> Result<()> {
+        let name = pipe_name(config);
         let handle = unsafe {
             CreateNamedPipeW(
                 PCWSTR(name.as_ptr()),
@@ -330,8 +339,8 @@ pub fn current_event_id() -> Option<u64> {
 }
 
 /// Asks the running agent to stop by connecting to its control pipe.
-pub fn request_stop() -> bool {
-    let name = pipe_name();
+pub fn request_stop(config: &Path) -> bool {
+    let name = pipe_name(config);
     match unsafe {
         CreateFileW(
             PCWSTR(name.as_ptr()),
@@ -393,8 +402,10 @@ mod tests {
     #[test]
     fn control_pipe_delivers_stop() {
         let (mut ev, _n) = EventLoop::new().unwrap();
-        ev.listen_control().unwrap();
-        assert!(request_stop());
+        let config = std::env::temp_dir().join(format!("oif-pipe-test-{}.toml", std::process::id()));
+        ev.listen_control(&config).unwrap();
+        assert!(!request_stop(Path::new("C:\\some\\other\\config.toml")));
+        assert!(request_stop(&config));
         assert!(matches!(ev.wait(Some(Duration::from_secs(2))), Wait::Msg(Msg::Stop)));
     }
 }

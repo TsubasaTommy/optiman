@@ -8,9 +8,18 @@ on:
 permissions:
   contents: read
 
+# A new push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: "1.100.0"
+  # Line tables keep backtraces readable with much less debug info to compile and link.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  # libjxl is built once per target into this directory and cached separately (see build.rs).
+  OIF_LIBJXL_CACHE_DIR: ${{ github.workspace }}/.libjxl-cache
 
 jobs:
   test:
@@ -21,17 +30,30 @@ jobs:
         include:
           - name: macOS arm64
             runner: macos-15
+            clippy: true
           - name: Windows x64
             runner: windows-latest
+            clippy: true
+          # Same Windows code as x64; clippy there is enough.
           - name: Windows arm64
             runner: windows-11-arm
+            clippy: false
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Fetch libjxl sources
+        id: libjxl
         shell: bash
-        run: scripts/fetch-libjxl.sh
+        run: |
+          scripts/fetch-libjxl.sh
+          echo "sha=$(git rev-parse HEAD:third_party/libjxl)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the libjxl build
+        uses: actions/cache@v6
+        with:
+          path: .libjxl-cache
+          key: libjxl-${{ runner.os }}-${{ runner.arch }}-${{ steps.libjxl.outputs.sha }}-${{ hashFiles('build.rs') }}
 
       - name: Install Rust
         shell: bash
@@ -56,6 +78,8 @@ jobs:
           }
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Format and license notices
         if: runner.os == 'macOS'
@@ -64,19 +88,19 @@ jobs:
           python3 scripts/third_party_licenses.py --check
 
       - name: Clippy
+        if: matrix.clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Test
         run: cargo test --locked
 
-      - name: Release build
-        run: cargo build --release --locked
-
+      # The test build's binaries are enough to measure idling; the release workflow builds
+      # the optimized (LTO) binaries.
       - name: Idle CPU check (macOS)
         if: runner.os == 'macOS'
-        run: scripts/idle-check.sh target/release/optimize-image-folder 30
+        run: scripts/idle-check.sh target/debug/optimize-image-folder 30
 
       - name: Idle CPU check (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/idle-check.ps1 -Exe target/release/optimize-image-folder.exe -Seconds 30
+        run: ./scripts/idle-check.ps1 -Exe target/debug/optimize-image-folder.exe -Seconds 30
